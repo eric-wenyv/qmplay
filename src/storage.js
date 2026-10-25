@@ -11,6 +11,7 @@ export function readLibrary(storage = globalThis.localStorage) {
 	try {
 		const data = JSON.parse(storage.getItem(preferenceKey) || "{}");
 		return {
+			accountUin: typeof data.accountUin === "string" ? data.accountUin : "",
 			liked: Array.isArray(data.liked)
 				? data.liked.filter(validTrack).slice(0, 5000)
 				: [],

@@ -45,6 +45,8 @@ export function normalizeTrack(value) {
 	const albumId = song.album?.mid || song.albummid;
 	return {
 		id: String(id),
+		songId: Number(song.id ?? song.songid) || null,
+		songType: Number(song.type ?? song.songtype) || 0,
 		title: String(song.title || song.name || song.songname || "未命名歌曲"),
 		artist:
 			singers
@@ -123,11 +125,11 @@ export class QQMusicProvider {
 		this.supportedQualities = supportedQualities;
 		this.followerCache = new Map();
 	}
-	async request(path, params = {}, { signal } = {}) {
+	async request(path, params = {}, { signal, method = "GET", body: requestBody } = {}) {
 		const base =
 			this.baseUrl ||
 			(globalThis.location?.protocol === "interlude:"
-				? "http://127.0.0.1:3200"
+				? "interlude://app/api"
 				: "/api");
 		const query = new URLSearchParams(
 			Object.entries(params).filter(([, v]) => v !== undefined),
@@ -137,13 +139,27 @@ export class QQMusicProvider {
 		try {
 			const response = await this.fetcher(`${base}${path}?${query}`, {
 				signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+				method, credentials: "same-origin",
+				...(requestBody !== undefined ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) } : {}),
 			});
+			if (response.status === 401) {
+				const error = new Error("登录已过期，请重新登录");
+				error.code = "AUTH_REQUIRED";
+				if (!path.startsWith("/auth/")) this.onAuthenticationRequired?.();
+				throw error;
+			}
 			if (!response.ok)
-				throw new Error(
+			{
+				let detail;
+				try { detail = (await response.json()).error; } catch { /* Fall back to status. */ }
+				const error = new Error(detail?.message || (
 					response.status === 502
 						? "无法连接本地音乐服务，请确认 qq-music-api 已在 3200 端口启动"
-						: `音乐服务请求失败（${response.status}）`,
-				);
+						: `音乐服务请求失败（${response.status}）`
+				));
+				error.code = detail?.code;
+				throw error;
+			}
 			try {
 				result = await response.json();
 			} catch {
@@ -165,6 +181,40 @@ export class QQMusicProvider {
 		)
 			throw new Error("QQ 音乐暂时无法提供数据，请稍后重试");
 		return body;
+	}
+	async getAuthStatus() {
+		try { return await this.request("/auth/status"); }
+		catch (error) { if (error.code === "AUTH_REQUIRED") return { authenticated: false }; throw error; }
+	}
+	createLoginQr() { return this.request("/auth/qr", {}, { method: "POST", body: {} }); }
+	checkLoginQr(id) { return this.request("/auth/qr/check", {}, { method: "POST", body: { id } }); }
+	logout() { return this.request("/auth/logout", {}, { method: "POST", body: {} }); }
+	async getFavorites() {
+		const songs = [];
+		let offset = 0;
+		for (let page = 0; page < 2000; page++) {
+			const result = await this.request("/user/favorites", { offset, limit: 100 });
+			if (!Array.isArray(result.songs) || typeof result.hasMore !== "boolean") throw new Error("收藏列表数据不完整，请重试");
+			songs.push(...result.songs);
+			if (!result.hasMore) return normalizeTracks(songs);
+			if (!Number.isSafeInteger(result.nextOffset) || result.nextOffset <= offset) throw new Error("收藏列表分页未前进，请重试");
+			offset = result.nextOffset;
+		}
+		throw new Error("收藏列表过大，未能完成同步");
+	}
+	async setFavorite(track, liked) {
+		let songId = track.songId, songType = track.songType || 0;
+		if (!Number.isSafeInteger(songId) || songId <= 0) {
+			const result = await this.request("/getSongInfo", { songmid: track.id });
+			if (result.songinfo?.code) throw new Error("无法获取歌曲资料，请重试");
+			const song = normalizeTrack(result.songinfo?.data?.track_info);
+			if (!song || song.id !== track.id || !Number.isSafeInteger(song.songId) || song.songId <= 0) throw new Error("无法确认这首歌的收藏编号");
+			songId = song.songId;
+			songType = song.songType;
+		}
+		const result = await this.request("/user/favorites", {}, { method: "POST", body: { songId, songType, liked } });
+		if (result.liked !== liked) throw new Error("QQ 音乐未确认收藏更改，请重试");
+		return { ...track, songId, songType };
 	}
 	async searchArtists(query, options) {
 		const term = query.trim();

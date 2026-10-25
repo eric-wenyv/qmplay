@@ -4,19 +4,8 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
 import artwork from "../electron/artwork.cjs";
+import api from "../electron/api.cjs";
 export const defaultApiOrigin = "http://127.0.0.1:3200";
-const apiPaths = new Set([
-	"/getHotkey",
-	"/getSingerList",
-	"/getSingerStarNum",
-	"/getSmartbox",
-	"/getSingerHotsong",
-	"/getRadioLists",
-	"/getRadioTracks",
-	"/getRecommend",
-	"/getMusicPlay",
-	"/getLyric",
-]);
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const port = Number(process.env.PORT || 4173);
@@ -30,7 +19,7 @@ const mime = {
 };
 const server = http.createServer(async (req, res) => {
 	const url = new URL(req.url, "http://localhost");
-	if (!["GET", "HEAD"].includes(req.method)) {
+	if (!["GET", "HEAD"].includes(req.method) && !(url.pathname.startsWith("/api/") && req.method === "POST")) {
 		res.writeHead(405);
 		res.end();
 		return;
@@ -39,20 +28,30 @@ const server = http.createServer(async (req, res) => {
 	if (url.pathname === "/art" || url.pathname.startsWith("/api/")) {
 		if (
 			url.pathname.startsWith("/api/") &&
-			!apiPaths.has(url.pathname.slice(4))
+			!api.allowedApiRequest(url.pathname.slice(4), req.method)
 		) {
 			res.writeHead(404);
 			res.end("Not found");
 			return;
 		}
 		try {
+			let requestBody;
+			if (req.method === "POST") {
+				const chunks = [];
+				let size = 0;
+				for await (const chunk of req) {
+					size += chunk.length;
+					if (size > 16384) { res.writeHead(413); res.end(); return; }
+					chunks.push(chunk);
+				}
+				requestBody = Buffer.concat(chunks);
+			}
 			const response =
 				url.pathname === "/art"
 					? await artwork.fetchArtwork(url.searchParams.get("url"))
-					: await fetch(
-							`${defaultApiOrigin.replace(/\/$/, "")}${url.pathname.slice(4)}${url.search}`,
-							{ signal: AbortSignal.timeout(16000), redirect: "error" },
-						);
+					: await api.proxyApi(url.pathname.slice(4), url.search, {
+						method: req.method, headers: req.headers, body: requestBody,
+					});
 			res.writeHead(response.status, {
 				"Content-Type":
 					response.headers.get("content-type") || "application/json",
@@ -61,6 +60,7 @@ const server = http.createServer(async (req, res) => {
 						? response.headers.get("cache-control") || "no-cache"
 						: "no-store",
 				"X-Content-Type-Options": "nosniff",
+				...(response.headers.getSetCookie().length ? { "Set-Cookie": response.headers.getSetCookie() } : {}),
 			});
 			if (req.method === "HEAD" || !response.body) res.end();
 			else

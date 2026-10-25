@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="./src/styles.css" />
     <script type="module" src="./src/app.js"></script>
   </head>
-  <body>
+  <body class="auth-gated">
     <main class="player" aria-label="间奏音乐播放器">
       <header class="topbar">
         <div class="mode-control" data-open="false">
@@ -39,6 +39,14 @@
           </div>
         </div>
       </header>
+
+      <section id="auth-view" class="auth-view" aria-label="QQ 音乐登录">
+        <h1>间奏</h1>
+        <p class="auth-caption">登录 QQ 音乐，同步喜欢的音乐</p>
+        <img id="auth-qr" width="180" height="180" alt="QQ 登录二维码" hidden />
+        <p id="auth-message" role="status" aria-live="polite">正在恢复登录…</p>
+        <button id="auth-retry" class="text-button" type="button" hidden>重试</button>
+      </section>
 
       <section class="main-stage" aria-label="正在播放">
         <div id="listening-view" class="listening-view">

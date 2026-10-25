@@ -5,11 +5,13 @@ const {
 	protocol,
 	net,
 	Menu,
+	session,
 } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const { pathToFileURL } = require("node:url");
 const { fetchArtwork } = require("./artwork.cjs");
+const { API_ORIGIN, proxyApi } = require("./api.cjs");
 
 protocol.registerSchemesAsPrivileged([
 	{
@@ -61,10 +63,38 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-	protocol.handle("interlude", (request) => {
+	protocol.handle("interlude", async (request) => {
 		const url = new URL(request.url);
-		if (url.host !== "app" || request.method !== "GET")
+		if (url.host !== "app")
 			return new Response("Not found", { status: 404 });
+		if (url.pathname.startsWith("/api/")) {
+			try {
+				const cookies = await session.defaultSession.cookies.get({ url: API_ORIGIN });
+				const response = await proxyApi(url.pathname.slice(4), url.search, {
+					method: request.method,
+					headers: { "Content-Type": "application/json", Origin: "interlude://app",
+						Cookie: cookies.filter(cookie => ["qq_music_session", "qq_music_challenge"].includes(cookie.name)).map(cookie => `${cookie.name}=${cookie.value}`).join("; ") },
+					body: request.method === "POST" ? await request.text() : undefined,
+				});
+				for (const header of response.headers.getSetCookie()) {
+					const [pair] = header.split(";");
+					const index = pair.indexOf("="), name = pair.slice(0, index), value = pair.slice(index + 1);
+					if (!["qq_music_session", "qq_music_challenge"].includes(name)) continue;
+					const age = Number(header.match(/max-age=(\d+)/i)?.[1] || 0);
+					if (!value || age === 0) await session.defaultSession.cookies.remove(API_ORIGIN, name);
+					else await session.defaultSession.cookies.set({ url: API_ORIGIN, name, value, httpOnly: true,
+						path: "/", sameSite: "strict", expirationDate: Date.now() / 1000 + age });
+				}
+				await session.defaultSession.cookies.flushStore();
+				const headers = new Headers(response.headers);
+				headers.delete("set-cookie");
+				headers.set("Cache-Control", "no-store");
+				return new Response(response.body, { status: response.status, headers });
+			} catch {
+				return Response.json({ error: { code: "API_UNAVAILABLE", message: "无法连接本地音乐服务，请重试" } }, { status: 502 });
+			}
+		}
+		if (request.method !== "GET") return new Response("Not found", { status: 404 });
 		if (url.pathname === "/art")
 			return fetchArtwork(url.searchParams.get("url"));
 		let resourcePath;

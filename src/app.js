@@ -3,12 +3,17 @@ import { QQMusicProvider, artworkUrl } from "./api.js";
 import { AudioTransport } from "./audio.js";
 import { readLibrary, writeLibrary } from "./storage.js";
 import { PlayerSession, formatTime, orderLabels } from "./player.js";
+import { Authentication } from "./auth.js";
+import { FavoriteSync } from "./favorites.js";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const session = new PlayerSession();
 const preferences = readLibrary();
-const liked = new Map(preferences.liked.map((track) => [track.id, track]));
+const liked = new Map();
+let activeUser = null;
+let authReady = false;
+let playerStarted = false;
 const audio = new Audio();
 const provider = new QQMusicProvider({
 	supportedQualities: [
@@ -83,7 +88,8 @@ function dismissNotice() {
 }
 function savePreferences() {
 	const success = writeLibrary({
-		liked: [...liked.values()],
+		liked: activeUser ? [...liked.values()] : preferences.liked,
+		accountUin: activeUser?.uin || preferences.accountUin || "",
 		volume,
 		order: session.order,
 		queue: session.queue,
@@ -875,15 +881,25 @@ $("#order-toggle").addEventListener("click", () => {
 	savePreferences();
 	announce(orderLabels[session.order]);
 });
-$("#like-toggle").addEventListener("click", () => {
+$("#like-toggle").addEventListener("click", async () => {
 	const current = session.current;
-	if (!current) return;
+	if (!current || !authReady || favorites.busy.has(current.id)) return;
 	const removing = liked.has(current.id);
-	removing ? liked.delete(current.id) : liked.set(current.id, { ...current });
-	if (mode === "liked" && removing) removeTrack(session.index);
-	updateLikeState();
-	savePreferences();
-	announce(removing ? "已取消喜欢" : "已加入喜欢的音乐");
+	const button = $("#like-toggle");
+	button.disabled = true;
+	button.setAttribute("aria-busy", "true");
+	try {
+		if (!await favorites.set(current, !removing)) return;
+		if (mode === "liked" && removing) {
+			const index = session.queue.findIndex(track => track.id === current.id);
+			if (index >= 0) removeTrack(index);
+		}
+		updateLikeState();
+		savePreferences();
+		announce(removing ? "已取消喜欢并同步" : "已收藏并同步到 QQ 音乐");
+	} catch (error) {
+		if (error.code !== "AUTH_REQUIRED") notify(error.message, () => refreshFavorites());
+	} finally { button.disabled = false; button.removeAttribute("aria-busy"); }
 });
 $("#queue-toggle").addEventListener("click", openQueue);
 $("#close-queue").addEventListener("click", closeQueue);
@@ -942,6 +958,7 @@ for (const name of ["pointerdown", "focusin"])
 			closeVolume();
 	});
 document.addEventListener("keydown", (event) => {
+	if (!authReady) return;
 	if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
 		event.preventDefault();
 		if ($("#queue-panel").hidden) showSearch();
@@ -1008,7 +1025,7 @@ if (navigator.mediaSession) {
 			transport.seek(session.elapsed + (details.seekOffset || 10)),
 	})) {
 		try {
-			navigator.mediaSession.setActionHandler(action, handler);
+			navigator.mediaSession.setActionHandler(action, (...args) => authReady && handler(...args));
 		} catch {
 			/* OS support varies. */
 		}
@@ -1040,19 +1057,95 @@ $(".player").addEventListener(
 	},
 	true,
 );
-window.addEventListener("pagehide", savePreferences);
-session.order = preferences.order;
-session.setQueue(preferences.queue, {
-	autoplay: false,
-	trackId: preferences.currentId,
+const favorites = new FavoriteSync({
+	provider, legacy: preferences.liked, legacyAccount: preferences.accountUin,
+	onChange(tracks) {
+		liked.clear();
+		for (const track of tracks) liked.set(track.id, track);
+		updateLikeState();
+		if (!$("#queue-panel").hidden) renderQueue();
+	},
 });
-session.seek(preferences.elapsed);
-updateOrder();
-updateVolume();
+const authentication = new Authentication({
+	provider,
+	onState({ state, message = "", image }) {
+		authReady = state === "ready";
+		document.body.classList.toggle("auth-gated", !authReady);
+		$("#auth-view").hidden = authReady;
+		$("#auth-message").textContent = message;
+		$(".auth-caption").hidden = ["checking", "unavailable", "ready"].includes(state);
+		$("#auth-qr").hidden = !image;
+		if (image) $("#auth-qr").src = image;
+		$("#auth-retry").hidden = !["unavailable", "expired", "cancelled", "loginError"].includes(state);
+		$("#auth-retry").textContent = state === "unavailable" ? "重新连接" : "刷新二维码";
+		$("#auth-retry").onclick = () => state === "unavailable" ? authentication.start() : authentication.login();
+		$(".mode-control").inert = !authReady;
+		$(".volume-control").inert = !authReady;
+		if (authReady) startPlayer();
+	},
+	async onAuthenticated(user) {
+		const previous = activeUser?.uin || preferences.accountUin;
+		activeUser = user;
+		if (previous && previous !== user.uin) {
+			transport.pause();
+			session.setQueue([], { autoplay: false });
+			preferences.queue = [];
+			mode = "radio";
+			playerStarted = false;
+		}
+		favorites.connect(user.uin);
+		try { await favorites.sync(); }
+		catch (error) { if (error.code === "AUTH_REQUIRED") throw error; notify(`收藏同步失败：${error.message}`, refreshFavorites); }
+	},
+});
+provider.onAuthenticationRequired = () => {
+	transport.pause();
+	authReady = false;
+	favorites.disconnect();
+	void authentication.start();
+};
+let refreshInFlight = null;
+let lastRefresh = 0;
+function refreshFavorites() {
+	if (!authReady) return;
+	if (refreshInFlight) return refreshInFlight;
+	refreshInFlight = (async () => {
+		try {
+			const status = await provider.getAuthStatus();
+			if (!status.authenticated) { provider.onAuthenticationRequired(); return; }
+			if (status.user.uin !== activeUser?.uin) { await authentication.start(); return; }
+			await favorites.sync();
+			savePreferences();
+			if (mode === "liked") {
+				const trackId = session.current?.id, elapsed = session.elapsed, autoplay = session.playing;
+				session.setQueue([...liked.values()], { autoplay, trackId });
+				if (session.current?.id === trackId) session.seek(elapsed);
+				else void loadCurrent({ autoplay });
+				render();
+			}
+		} catch (error) { if (error.code !== "AUTH_REQUIRED") notify(`收藏同步失败：${error.message}`, refreshFavorites); }
+		finally { lastRefresh = Date.now(); refreshInFlight = null; }
+	})();
+	return refreshInFlight;
+}
+function startPlayer() {
+	if (playerStarted) { render(); return; }
+	playerStarted = true;
+	session.order = preferences.order;
+	session.setQueue(mode === "liked" ? [...liked.values()] : preferences.queue, { autoplay: false, trackId: preferences.currentId });
+	session.seek(preferences.elapsed);
+	updateOrder(); updateVolume(); render();
+	savePreferences();
+	if (session.current) void loadCurrent({ elapsed: session.elapsed });
+	else if (mode === "liked") void switchSource("liked", null, { autoplay: false });
+	else if (mode === "artist" && selectedArtist) void switchSource("artist", selectedArtist, { autoplay: false });
+	else void switchSource("radio", station, { autoplay: false });
+}
+window.addEventListener("pagehide", () => { authentication.stop(); savePreferences(); });
+window.addEventListener("pageshow", event => { if (event.persisted) void authentication.start(); });
+for (const event of ["focus", "online"]) window.addEventListener(event, () => {
+	if (authReady && Date.now() - lastRefresh > 30000) void refreshFavorites();
+});
+setInterval(() => { if (authReady && !document.hidden) void refreshFavorites(); }, 5 * 60 * 1000);
 render();
-if (session.current) void loadCurrent({ elapsed: session.elapsed });
-else if (mode === "liked")
-	void switchSource("liked", null, { autoplay: false });
-else if (mode === "artist" && selectedArtist)
-	void switchSource("artist", selectedArtist, { autoplay: false });
-else void switchSource("radio", station, { autoplay: false });
+void authentication.start();

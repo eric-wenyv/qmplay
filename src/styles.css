@@ -22,6 +22,12 @@
 	--mode-size: 44px;
 	--mode-padding: 4px;
 }
+.auth-gated .player > :not(.topbar):not(.auth-view) { display: none !important; }
+.auth-gated .mode-control, .auth-gated .volume-control { visibility: hidden; }
+.auth-view { min-height: 430px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }
+.auth-view h1 { font-size: 28px; font-weight: 500; margin: 0 0 8px; }
+.auth-caption, #auth-message { color: var(--muted); font-size: 14px; line-height: 1.6; }
+#auth-qr { margin: 12px 0; border: 10px solid white; border-radius: 10px; background: white; object-fit: contain; }
 * {
 	box-sizing: border-box;
 }

@@ -7,9 +7,17 @@ export async function ensureBackend() {
 		const response = await fetch(`${address}/explorer/metadata`, {
 			signal: AbortSignal.timeout(1500),
 		});
-		if (response.ok && Array.isArray((await response.json()).endpoints))
-			return null;
-	} catch {
+		if (response.ok) {
+			const metadata = await response.json();
+			if (Array.isArray(metadata.endpoints)) {
+				if (!metadata.endpoints.some(endpoint => endpoint.path === "/auth/status"))
+					throw new Error("BACKEND_RESTART_REQUIRED");
+				return null;
+			}
+		}
+	} catch (error) {
+		if (error.message === "BACKEND_RESTART_REQUIRED")
+			throw new Error("3200 端口上的 API 版本不支持登录，请重启 qq-music-api 后再启动播放器。");
 		/* Start the adjacent checkout if a service is not already running. */
 	}
 	const directory =
@@ -31,7 +39,16 @@ export async function ensureBackend() {
 	// The upstream server can log signed links; do not copy these into the renderer.
 	let spawnError = null;
 	child.stdout.resume();
-	child.stderr.resume();
+	let diagnosticBuffer = "";
+	child.stderr.on("data", chunk => {
+		diagnosticBuffer += chunk.toString();
+		const lines = diagnosticBuffer.split("\n");
+		diagnosticBuffer = lines.pop().slice(-4096);
+		for (const line of lines) {
+			// This event contains only host, path, status and error code, never credentials.
+			if (line.startsWith("auth.upstream.unavailable ")) console.warn(line);
+		}
+	});
 	child.on("error", (error) => {
 		spawnError = error;
 	});
