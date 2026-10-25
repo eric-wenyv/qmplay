@@ -1,0 +1,60 @@
+{
+	"name": "interlude-player",
+	"productName": "间奏",
+	"version": "0.1.0",
+	"private": true,
+	"description": "A quiet, square music player. Electron UI prototype for qq-music-api.",
+	"type": "module",
+	"main": "electron/main.cjs",
+	"packageManager": "pnpm@11.25.0",
+	"engines": {
+		"node": ">=22.12.0"
+	},
+	"scripts": {
+		"dev": "node scripts/serve.mjs",
+		"start": "electron .",
+		"test": "node --test tests/*.test.js",
+		"check": "node scripts/check.mjs",
+		"build": "node scripts/build.mjs",
+		"pack:dir": "pnpm build && electron-builder --dir",
+		"dist:linux": "pnpm build && electron-builder --linux",
+		"dist:mac": "pnpm build && electron-builder --mac",
+		"dist:win": "pnpm build && electron-builder --win"
+	},
+	"devDependencies": {
+		"electron": "45.0.0",
+		"electron-builder": "26.18.0"
+	},
+	"build": {
+		"appId": "studio.interlude.player",
+		"productName": "Interlude",
+		"directories": {
+			"output": "release"
+		},
+		"files": [
+			"dist/**/*",
+			"electron/**/*",
+			"package.json"
+		],
+		"linux": {
+			"target": [
+				"AppImage",
+				"deb"
+			],
+			"category": "Audio",
+			"icon": "assets/icon.png",
+			"maintainer": "Interlude"
+		},
+		"mac": {
+			"target": [
+				"dmg"
+			],
+			"category": "public.app-category.music"
+		},
+		"win": {
+			"target": [
+				"nsis"
+			]
+		}
+	}
+}
