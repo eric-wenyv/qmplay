@@ -131,6 +131,52 @@ function app(preferences = {}, { mobile = false, desktop = false } = {}) {
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
+test("personal radio is first on every platform, preserves browsing playback and continues with new batches", async () => {
+	for (const layout of [{}, { mobile: true }, { mobile: true, desktop: true }]) {
+		const player = app({}, layout);
+		await player.switchSource("liked", null);
+		player.transport.seek(35);
+		const requests = [];
+		player.transport.provider.getRadioStations = async () => [{ id: "42", name: "公共电台", group: "分类" }];
+		player.transport.provider.getRadioTracks = async (id, firstplay, { signal }) => {
+			requests.push({ id, firstplay, signal });
+			return firstplay ? songs : [{ id: "next-personal", title: "下一批推荐" }];
+		};
+		await player.showRadio();
+		const stations = player.element("#radio-results")._stations;
+		assert.deepEqual(Array.from(stations, (station) => station.id), ["99", "new", "42"]);
+		assert.equal(stations[0].name, "私人电台／猜你喜欢");
+		assert.equal(player.session.current.id, "a");
+		assert.equal(player.session.elapsed, 35);
+		assert.equal(requests.length, 0);
+		player.click("#radio-results", { station: "99" });
+		await settle();
+		assert.equal(player.session.source.resource.id, "99");
+		assert.equal(player.audio.paused, false);
+		assert.equal(requests[0].id, "99");
+		assert.equal(requests[0].firstplay, 1);
+		player.session.select(2);
+		await player.advance("next", true);
+		await settle();
+		assert.equal(requests[1].id, "99");
+		assert.equal(requests[1].firstplay, 0);
+		assert.equal(player.session.current.id, "next-personal");
+		assert.equal(player.saved.at(-1).queueSource.resource.id, "99");
+	}
+});
+
+test("personal radio and new songs remain usable when the public catalogue fails", async () => {
+	const player = app();
+	player.transport.provider.getRadioStations = async () => { throw new Error("公共频道暂时不可用"); };
+	await player.showRadio();
+	assert.deepEqual(Array.from(player.element("#radio-results")._stations, (station) => station.id), ["99", "new"]);
+	assert.match(player.element("#radio-results").innerHTML, /私人电台／猜你喜欢/);
+	assert.equal(player.element("#notice-message").textContent, "公共频道暂时不可用");
+	player.click("#radio-results", { station: "99" });
+	await settle();
+	assert.equal(player.session.current.id, "a");
+});
+
 test("returning to favorites preserves the current song, progress, queue and listening history", async () => {
 	const player = app();
 	await player.switchSource("liked", null);
@@ -190,7 +236,7 @@ test("reselecting favorites preserves paused and buffering playback", async () =
 	assert.equal(player.transport.pendingSeek, 23);
 });
 
-test("browsing favorites preserves a different source until explicit playback, including after clear", async () => {
+test("browsing favorites preserves a different source until explicit playback, including an empty queue", async () => {
 	const player = app();
 	await player.switchSource("liked", null);
 	player.transport.seek(31);
@@ -207,7 +253,8 @@ test("browsing favorites preserves a different source until explicit playback, i
 	assert.equal(player.session.elapsed, 0);
 	assert.equal(player.audio.paused, false);
 
-	player.click("#clear-queue");
+	for (let index = player.session.queue.length - 1; index >= 0; index--)
+		player.click("#queue-list", { remove: String(index) });
 	player.chooseLiked();
 	await settle();
 	assert.equal(player.session.current, null);
@@ -372,7 +419,7 @@ test("artist pagination follows the queue source and ignores batches for replace
 	assert.equal(player.session.current.id, "a");
 });
 
-test("a new queue can fetch while an old batch is pending, and clear discards its batch", async () => {
+test("a new queue can fetch while an old batch is pending, and replacement discards its batch", async () => {
 	const player = app();
 	await player.switchSource("radio", { id: "new" });
 	let resolveOld, resolveNew;
@@ -385,10 +432,10 @@ test("a new queue can fetch while an old batch is pending, and clear discards it
 	assert.equal(typeof resolveNew, "function");
 	resolveOld([{ id: "stale", title: "旧请求" }]);
 	assert.equal(await oldBatch, false);
-	player.click("#clear-queue");
-	resolveNew({ tracks: [{ id: "cleared", title: "已清空" }], hasMore: false });
+	await player.switchSource("liked", null, { autoplay: false });
+	resolveNew({ tracks: [{ id: "replaced", title: "已替换" }], hasMore: false });
 	assert.equal(await newBatch, false);
-	assert.equal(player.session.current, null);
+	assert.equal(player.session.current.id, "a");
 	assert.equal(player.audio.paused, true);
 });
 
@@ -707,7 +754,7 @@ test("mobile queue is a normal page and keeps playback controls available", asyn
 	assert.equal(player.element("#queue-panel").hidden, true);
 });
 
-test("mobile queue selection, removal, and clear preserve page and playback semantics", async () => {
+test("mobile queue selection and removing the last songs preserve page and playback semantics", async () => {
 	const player = app({}, { mobile: true });
 	await player.switchSource("liked", null);
 	player.click("#queue-toggle");
@@ -720,13 +767,13 @@ test("mobile queue selection, removal, and clear preserve page and playback sema
 	assert.equal(player.session.current.id, "b");
 	assert.equal(player.audio.paused, false);
 	player.click("#queue-toggle");
-	player.click("#clear-queue");
+	player.click("#queue-list", { remove: "1" });
+	player.click("#queue-list", { remove: "0" });
 	await settle();
 	assert.equal(player.view, "queue");
 	assert.equal(player.element("#queue-panel").hidden, false);
 	assert.equal(player.session.current, null);
 	assert.equal(player.audio.paused, true);
-	assert.equal(player.document.activeElement, player.element("#queue-panel"));
 });
 
 test("responsive queue transitions keep the queue and progress while desktop retains its dialog", async () => {

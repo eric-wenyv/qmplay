@@ -298,13 +298,15 @@ export class QQMusicProvider {
 					coverUrl: safeUrl(radio.radioImg),
 				})),
 			)
-			.filter((r) => r.id !== "99"); // Personal radio requires an account; public stations do not.
+			.filter((r) => r.id !== "99"); // The personal channel has a fixed entry at the top of the page.
 	}
-	async getRadioTracks(id = "199", firstplay = 1) {
-		const body = await this.request("/getRadioTracks", { id, firstplay });
+	async getRadioTracks(id = "199", firstplay = 1, options) {
+		const body = await this.request("/getRadioTracks", { id, firstplay }, options);
 		if (body.radio?.code || body.req_0?.code)
 			throw new Error("电台暂时无法提供歌曲，请换一个频道");
-		return normalizeTracks((body.radio || body.req_0)?.data?.track_list);
+		const tracks = (body.radio || body.req_0)?.data?.track_list;
+		if (!Array.isArray(tracks)) throw new Error("电台歌曲数据不完整，请重试");
+		return normalizeTracks(tracks);
 	}
 	async getRecommendedTracks() {
 		const body = await this.request("/getRecommend");

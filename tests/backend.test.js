@@ -109,6 +109,62 @@ test('current recommendation, radio, search and lyric contracts work without unu
   });
 });
 
+test('personal radio requires the current account, refreshes credentials and keeps public radio compatible', async () => {
+  const firstToken = session.newToken(), secondToken = session.newToken();
+  const firstCredential = { musicid: 12345, musickey: 'radio-old-key', refresh_token: 'refresh', refresh_key: 'refresh-key' };
+  await session.sessions.save(firstToken, { credential: firstCredential, expiresAt: Date.now() + 60000 });
+  await session.sessions.save(secondToken, { credential: { musicid: 67890, musickey: 'radio-second-key' }, expiresAt: Date.now() + 60000 });
+  let batches = 0, refreshes = 0, invalid = false, outage = false;
+  axios.defaults.adapter = async (config) => {
+    assert.equal(config.method, 'post');
+    const payload = JSON.parse(config.data), request = payload.req_0;
+    if (request.method === 'Login') {
+      refreshes++;
+      return upstream(config, { code: 0, req_0: { code: 0, data: { ...firstCredential, musickey: 'radio-new-key' } } });
+    }
+    assert.equal(request.module, 'music.radioProxy.MbTrackRadioSvr');
+    assert.equal(request.method, 'get_radio_track');
+    assert.deepEqual(request.param, { id: 99, num: 5, from: 0, scene: 0, song_ids: [] });
+    if (payload.comm.authst === 'radio-old-key') return upstream(config, { code: 301 });
+    if (outage) throw Object.assign(new Error('network outage'), { code: 'ETIMEDOUT' });
+    const first = payload.comm.uin === '12345';
+    assert.equal(payload.comm.authst, first ? 'radio-new-key' : 'radio-second-key');
+    assert.match(config.headers.Cookie, new RegExp(`qqmusic_key=${payload.comm.authst}`));
+    batches++;
+    return upstream(config, { code: 0, req_0: { code: 0, data: invalid ? {} : {
+      tracks: [{ mid: `${first ? 'first' : 'second'}-${batches}`, title: '猜你喜欢' }],
+    } } });
+  };
+  try {
+    await localApi(async (request) => {
+      assert.equal((await request('/getRadioTracks?id=99')).status, 401);
+      assert.equal((await request('/getRadioTracks?id=99', { headers: { Origin: 'https://example.com' } })).status, 403);
+      assert.equal(batches, 0);
+      const headers = { Cookie: `qq_music_session=${firstToken}` };
+      const first = await request('/getRadioTracks?id=99&firstplay=1', { headers });
+      assert.equal(first.status, 200);
+      assert.equal((await first.json()).response.radio.data.track_list[0].mid, 'first-1');
+      assert.equal(first.headers.get('cache-control'), 'no-store');
+      assert.equal(refreshes, 1);
+      const next = await request('/getRadioTracks?id=99&firstplay=0', { headers });
+      assert.equal((await next.json()).response.radio.data.track_list[0].mid, 'first-2');
+      const second = await request('/getRadioTracks?id=99', { headers: { Cookie: `qq_music_session=${secondToken}` } });
+      assert.equal((await second.json()).response.radio.data.track_list[0].mid, 'second-3');
+      invalid = true;
+      const malformed = await request('/getRadioTracks?id=99', { headers });
+      assert.equal(malformed.status, 502);
+      assert.equal((await malformed.json()).error.code, 'UPSTREAM_INVALID');
+      invalid = false;
+      outage = true;
+      assert.equal((await request('/getRadioTracks?id=99', { headers })).status, 502);
+      assert(await session.sessions.get(firstToken));
+    });
+  } finally {
+    await session.sessions.delete(firstToken);
+    await session.sessions.delete(secondToken);
+  }
+});
+
 test('artist albums and album songs use offset pagination, and artist songs can pass the first thousand', async () => {
   const calls = [];
   axios.defaults.adapter = async (config) => {

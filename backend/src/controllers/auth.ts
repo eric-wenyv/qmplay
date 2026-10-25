@@ -67,6 +67,7 @@ export const authGuard = async (ctx: Context, next: Next) => {
   if (
     !ctx.path.startsWith('/auth/') &&
     ctx.path !== '/user/favorites' &&
+    !(ctx.path === '/getRadioTracks' && Number(ctx.query.id) === 99) &&
     !ctx.path.startsWith('/getMusicPlay')
   )
     return next();

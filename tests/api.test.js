@@ -80,6 +80,24 @@ test("radio catalogue, batch and singer songs map the actual upstream envelopes"
 	assert.equal((await api.getRadioTracks("199"))[0].title, "晴天");
 	assert.equal((await api.getArtistTracks("jay"))[0].id, "mid-a");
 });
+test("personal radio keeps the radio contract, supports cancellation and rejects invalid batches", async () => {
+	const requests = [];
+	const controller = new AbortController();
+	const api = new QQMusicProvider({ fetcher: async (url, options) => {
+		requests.push({ url, options });
+		return reply({ response: { code: 0, radio: { code: 0, data: { track_list: [track, track] } } } });
+	} });
+	assert.deepEqual((await api.getRadioTracks("99", 1, { signal: controller.signal })).map((song) => song.id), ["mid-a"]);
+	await api.getRadioTracks("99", 0);
+	assert.match(requests[0].url, /getRadioTracks\?id=99&firstplay=1/);
+	assert.match(requests[1].url, /getRadioTracks\?id=99&firstplay=0/);
+	controller.abort();
+	assert.equal(requests[0].options.signal.aborted, true);
+	api.fetcher = async () => reply({ response: { radio: { code: 0, data: {} } } });
+	await assert.rejects(api.getRadioTracks("99"), /数据不完整/);
+	api.fetcher = async () => reply({ response: { radio: { code: 1, data: { track_list: [track] } } } });
+	await assert.rejects(api.getRadioTracks("99"), /暂时无法提供歌曲/);
+});
 test("playback starts with the highest advertised quality; empty or unsafe URLs never play", async () => {
 	let lastUrl;
 	const api = new QQMusicProvider({

@@ -336,8 +336,6 @@ function renderQueue({ scrolling = false } = {}) {
 				)
 				.join("")}${end < session.queue.length ? `<div aria-hidden="true" style="height:${(session.queue.length - end) * 70}px"></div>` : ""}`
 		: '<p class="queue-empty">这里还没有歌曲</p>';
-	$("#load-more").hidden = !session.source || session.source.type === "liked" || session.source.hasMore === false;
-	$("#load-more").disabled = moreRequest?.queue === session.queue;
 	if (focused !== undefined)
 		list.querySelector(`[data-${focusAttribute}="${focused}"]`)?.focus({ preventScroll: true });
 }
@@ -606,6 +604,15 @@ async function loadMoreAlbums() {
 		if (catalog === albumCatalog) $("#album-results").setAttribute("aria-busy", "false");
 	}
 }
+function renderRadioStations(stations) {
+	$("#radio-results")._stations = stations;
+	$("#radio-results").innerHTML = stations
+		.map(
+			(item) =>
+				`<button type="button" class="artist-row" data-station="${escapeHtml(item.id)}"><span class="artist-avatar radio-avatar"><img src="${escapeHtml(artworkUrl(item.coverUrl))}" alt="" loading="lazy" /></span><span class="artist-row-copy"><span class="artist-name">${escapeHtml(item.name)}</span><span class="artist-followers">${escapeHtml(item.group)}</span></span><span class="icon-slot">${icon("play")}</span></button>`,
+		)
+		.join("");
+}
 async function showRadio() {
 	sourceVersion++;
 	sourceLoading = false;
@@ -613,25 +620,17 @@ async function showRadio() {
 	setView("browse");
 	const version = ++radioVersion;
 	$("#mode-toggle").focus();
-	$("#radio-results").innerHTML =
-		'<p class="results-message">正在连接电台…</p>';
+	const stations = [
+		{ id: "99", name: "私人电台／猜你喜欢", group: "根据你的听歌喜好推荐", coverUrl: "" },
+		{ id: "new", name: "每日新歌", group: "推荐", coverUrl: "" },
+	];
+	renderRadioStations(stations);
 	try {
-		const stations = [
-			{ id: "new", name: "每日新歌", group: "推荐", coverUrl: "" },
-			...(await provider.getRadioStations()),
-		];
+		const publicStations = await provider.getRadioStations();
 		if (version !== radioVersion || !isPageActive("browse")) return;
-		$("#radio-results")._stations = stations;
-		$("#radio-results").innerHTML = stations
-			.map(
-				(item) =>
-					`<button type="button" class="artist-row" data-station="${escapeHtml(item.id)}"><span class="artist-avatar radio-avatar"><img src="${escapeHtml(artworkUrl(item.coverUrl))}" alt="" loading="lazy" /></span><span class="artist-row-copy"><span class="artist-name">${escapeHtml(item.name)}</span><span class="artist-followers">${escapeHtml(item.group)}</span></span><span class="icon-slot">${icon("play")}</span></button>`,
-			)
-			.join("");
+		renderRadioStations([...stations, ...publicStations]);
 	} catch (error) {
 		if (version !== radioVersion || !isPageActive("browse")) return;
-		$("#radio-results").innerHTML =
-			'<p class="results-message">电台暂时不可用</p>';
 		notify(error.message, showRadio);
 	}
 }
@@ -651,7 +650,7 @@ async function switchSource(nextMode, resource, { autoplay = true, trackId } = {
 			page = await provider[nextMode === "artist" ? "getArtistTrackPage" : "getAlbumTrackPage"](resource.id, 1, { signal });
 			queue = page.tracks;
 		} else queue = resource.id === "new"
-			? await provider.getRecommendedTracks() : await provider.getRadioTracks(resource.id);
+			? await provider.getRecommendedTracks() : await provider.getRadioTracks(resource.id, 1, { signal });
 		if (version !== sourceVersion) return;
 		if (!queue.length)
 			throw new Error("暂时没有可用歌曲，请选择其他来源");
@@ -699,7 +698,7 @@ async function loadMore({ quiet = false } = {}) {
 					? await provider[source.type === "artist" ? "getArtistTrackPage" : "getAlbumTrackPage"](
 						source.resource.id, source.page + 1, { signal: pending.controller.signal }) : null;
 				const tracks = page ? page.tracks : source.resource.id === "new"
-					? await provider.getRecommendedTracks() : await provider.getRadioTracks(source.resource.id, 0);
+					? await provider.getRecommendedTracks() : await provider.getRadioTracks(source.resource.id, 0, { signal: pending.controller.signal });
 				if (queue !== session.queue) return false;
 				const added = tracks.filter((track) => {
 					if (known.has(track.id)) return false;
@@ -730,7 +729,6 @@ async function loadMore({ quiet = false } = {}) {
 	};
 	moreRequest = pending;
 	pending.promise = request();
-	$("#load-more").disabled = true;
 	const result = await pending.promise;
 	if (moreRequest === pending) moreRequest = null;
 	if (!$("#queue-panel").hidden) renderQueue();
@@ -781,8 +779,6 @@ function updateOrder() {
 		`播放顺序：${orderLabels[session.order]}`,
 	);
 	$("#order-toggle").dataset.tip = orderLabels[session.order];
-	$("#queue-order-icon").innerHTML = icon(session.order);
-	$("#queue-order-label").textContent = orderLabels[session.order];
 }
 function isMobileLayout() {
 	return !window.interludeDesktop && mobileLayout.matches;
@@ -1103,17 +1099,6 @@ $("#queue-list").addEventListener("keydown", (event) => {
 	renderQueue();
 	list.querySelector(`[data-${remove ? "remove" : "index"}="${next}"]`)?.focus();
 });
-$("#clear-queue").addEventListener("click", () => {
-	sourceVersion++;
-	sourceLoading = false;
-	playlistAbort?.abort();
-	moreRequest?.controller.abort();
-	session.setQueue([], { autoplay: false });
-	void loadCurrent();
-	renderQueue();
-	(isMobileLayout() ? $("#queue-panel") : $("#close-queue")).focus();
-});
-$("#load-more").addEventListener("click", () => void loadMore());
 $("#album-art").setAttribute("role", "button");
 $("#album-art").tabIndex = 0;
 $("#album-art").setAttribute("aria-label", "查看歌词");
