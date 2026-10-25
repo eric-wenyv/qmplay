@@ -172,8 +172,8 @@ function updatePlayState() {
 	$(".player").classList.toggle("is-buffering", loading);
 	$("#play-toggle").setAttribute("aria-busy", String(loading));
 	document.title = session.current
-		? `${session.current.title} · 间奏`
-		: "间奏 · Interlude";
+		? `${session.current.title} · qqmui`
+		: "qqmui · qq music ui";
 	if (navigator.mediaSession)
 		navigator.mediaSession.playbackState = session.playing
 			? "playing"

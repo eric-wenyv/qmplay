@@ -12,7 +12,9 @@ const fs = require("node:fs");
 const { pathToFileURL } = require("node:url");
 const { fetchArtwork } = require("./artwork.cjs");
 const { API_ORIGIN, proxyApi } = require("./api.cjs");
+const { authCookieHeader, storeAuthCookies } = require("./auth-cookies.cjs");
 
+// Keep the established origin so existing local playback and favorite data remain accessible.
 protocol.registerSchemesAsPrivileged([
 	{
 		scheme: "interlude",
@@ -24,7 +26,15 @@ protocol.registerSchemesAsPrivileged([
 		},
 	},
 ]);
-app.setName("Interlude");
+app.setName("qqmui");
+// Reuse an existing desktop profile to preserve login cookies and local playback state.
+const appData = app.getPath("appData");
+const userData = ["qqmui", "Interlude", "间奏", "interlude-player"]
+	.map((name) => path.join(appData, name))
+	.find((directory) => fs.existsSync(directory)) || path.join(appData, "qqmui");
+fs.mkdirSync(userData, { recursive: true });
+app.setPath("userData", userData);
+app.setPath("sessionData", userData);
 let window;
 const rendererRoot = fs.existsSync(path.join(__dirname, "../dist/index.html"))
 	? path.join(__dirname, "../dist")
@@ -37,7 +47,7 @@ function createWindow() {
 		minWidth: 380,
 		minHeight: 520,
 		backgroundColor: "#665e50",
-		title: "间奏 · Interlude",
+		title: "qqmui · qq music ui",
 		frame: false,
 		show: false,
 		autoHideMenuBar: true,
@@ -73,19 +83,10 @@ app.whenReady().then(() => {
 				const response = await proxyApi(url.pathname.slice(4), url.search, {
 					method: request.method,
 					headers: { "Content-Type": "application/json", Origin: "interlude://app",
-						Cookie: cookies.filter(cookie => ["qq_music_session", "qq_music_challenge"].includes(cookie.name)).map(cookie => `${cookie.name}=${cookie.value}`).join("; ") },
+						Cookie: authCookieHeader(cookies) },
 					body: request.method === "POST" ? await request.text() : undefined,
 				});
-				for (const header of response.headers.getSetCookie()) {
-					const [pair] = header.split(";");
-					const index = pair.indexOf("="), name = pair.slice(0, index), value = pair.slice(index + 1);
-					if (!["qq_music_session", "qq_music_challenge"].includes(name)) continue;
-					const age = Number(header.match(/max-age=(\d+)/i)?.[1] || 0);
-					if (!value || age === 0) await session.defaultSession.cookies.remove(API_ORIGIN, name);
-					else await session.defaultSession.cookies.set({ url: API_ORIGIN, name, value, httpOnly: true,
-						path: "/", sameSite: "strict", expirationDate: Date.now() / 1000 + age });
-				}
-				await session.defaultSession.cookies.flushStore();
+				await storeAuthCookies(session.defaultSession.cookies, response.headers);
 				const headers = new Headers(response.headers);
 				headers.delete("set-cookie");
 				headers.set("Cache-Control", "no-store");

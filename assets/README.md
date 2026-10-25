@@ -1,6 +1,8 @@
 # 素材
 
-- `coast.jpg`：内置 `image_gen` 工具生成，保存为本地 JPEG。所有演示封面通过这一张海岸照片的裁切和 CSS 色调变化呈现，非对应真实专辑封面。
+本目录保存 qqmui（qq music ui，面向 Linux 的极简 QQ 音乐播放器）的内置素材。
+
+- `coast.jpg`：内置 `image_gen` 工具生成，保存为本地 JPEG，用作尚未加载歌曲或真实封面不可用时的占位封面。
 - `icon.svg` / `icon.png`：仓库内原生矢量图标及其 PNG 版本。
 
 封面生成提示词：
