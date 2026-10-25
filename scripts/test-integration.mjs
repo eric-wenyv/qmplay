@@ -1,0 +1,48 @@
+import assert from "node:assert/strict";
+import { QQMusicProvider } from "../src/api.js";
+const address = process.env.QQ_MUSIC_API_URL || "http://127.0.0.1:3200";
+const provider = new QQMusicProvider({ baseUrl: address });
+await provider.checkConnection();
+const artists = await provider.searchArtists("周杰伦");
+assert(artists.some((artist) => artist.name === "周杰伦"));
+const singerTracks = await provider.getArtistTracks(artists[0].id);
+assert(singerTracks.length > 0);
+const stations = await provider.getRadioStations();
+assert(stations.length > 0);
+const batch = await provider.getRadioTracks("199");
+assert(batch.length > 0);
+const songs = await provider.getRecommendedTracks();
+assert(songs.length > 0);
+const lines = await provider.getLyrics(songs[0].id);
+assert(Array.isArray(lines));
+console.log(
+	`Live API: ${artists.length} artists, ${singerTracks.length} artist songs, ${stations.length} stations, ${batch.length} radio songs, ${songs.length} recommendations, ${lines.length} lyric lines.`,
+);
+// Rights vary; try a bounded set of current recommendations and verify actual media bytes.
+let playable = false;
+for (const track of songs.slice(0, 5)) {
+	try {
+		const url = await provider.getPlayback(track);
+		const response = await fetch(url, {
+			headers: { Range: "bytes=0-1023" },
+			signal: AbortSignal.timeout(12000),
+		});
+		const valid =
+			response.ok &&
+			/audio|octet-stream/.test(response.headers.get("content-type") || "");
+		await response.body?.cancel();
+		if (valid) {
+			playable = true;
+			console.log(
+				`Live audio verified: ${track.title} (HTTP ${response.status}).`,
+			);
+			break;
+		}
+	} catch {
+		/* Try another track when playback is restricted. */
+	}
+}
+assert(
+	playable,
+	"No playable audio in the first five recommendations. Check network and upstream permissions.",
+);

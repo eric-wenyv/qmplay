@@ -5,7 +5,6 @@ const paths = {
 		'<path d="M20.8 4.9a5.5 5.5 0 0 0-7.8 0L12 6l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.3a5.5 5.5 0 0 0 0-7.8Z"/>',
 	artist:
 		'<circle cx="12" cy="8" r="4"/><path d="M4.5 21v-2a7.5 7.5 0 0 1 15 0v2"/>',
-	chevronDown: '<path d="m8 10 4 4 4-4"/>',
 	close: '<path d="m6 6 12 12M6 18 18 6"/>',
 	minus: '<path d="M5 12h14"/>',
 	volume:

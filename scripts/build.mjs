@@ -11,4 +11,3 @@ for (const name of ["index.html", "src", "assets"])
 		recursive: true,
 	});
 console.log(`Built ${fileURLToPath(new URL("dist/", root))}`);
-await import("./export-preview.mjs");

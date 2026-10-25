@@ -2,6 +2,21 @@ import http from "node:http";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import { Readable } from "node:stream";
+import artwork from "../electron/artwork.cjs";
+export const defaultApiOrigin = "http://127.0.0.1:3200";
+const apiPaths = new Set([
+	"/getHotkey",
+	"/getSingerList",
+	"/getSingerStarNum",
+	"/getSmartbox",
+	"/getSingerHotsong",
+	"/getRadioLists",
+	"/getRadioTracks",
+	"/getRecommend",
+	"/getMusicPlay",
+	"/getLyric",
+]);
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const port = Number(process.env.PORT || 4173);
@@ -13,11 +28,49 @@ const mime = {
 	".jpg": "image/jpeg",
 	".png": "image/png",
 };
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
 	const url = new URL(req.url, "http://localhost");
 	if (!["GET", "HEAD"].includes(req.method)) {
 		res.writeHead(405);
 		res.end();
+		return;
+	}
+
+	if (url.pathname === "/art" || url.pathname.startsWith("/api/")) {
+		if (
+			url.pathname.startsWith("/api/") &&
+			!apiPaths.has(url.pathname.slice(4))
+		) {
+			res.writeHead(404);
+			res.end("Not found");
+			return;
+		}
+		try {
+			const response =
+				url.pathname === "/art"
+					? await artwork.fetchArtwork(url.searchParams.get("url"))
+					: await fetch(
+							`${defaultApiOrigin.replace(/\/$/, "")}${url.pathname.slice(4)}${url.search}`,
+							{ signal: AbortSignal.timeout(16000), redirect: "error" },
+						);
+			res.writeHead(response.status, {
+				"Content-Type":
+					response.headers.get("content-type") || "application/json",
+				"Cache-Control":
+					url.pathname === "/art"
+						? response.headers.get("cache-control") || "no-cache"
+						: "no-store",
+				"X-Content-Type-Options": "nosniff",
+			});
+			if (req.method === "HEAD" || !response.body) res.end();
+			else
+				Readable.fromWeb(response.body)
+					.on("error", () => res.destroy())
+					.pipe(res);
+		} catch {
+			res.writeHead(502, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ error: "QQ Music API unavailable" }));
+		}
 		return;
 	}
 	let requestPath;

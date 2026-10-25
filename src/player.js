@@ -40,6 +40,7 @@ export class PlayerSession {
 		if (!Number.isInteger(index) || index < 0 || index >= this.queue.length)
 			return false;
 		if (index !== this.index) this.history.push(this.index);
+		if (this.history.length > 500) this.history.shift();
 		this.index = index;
 		this.elapsed = 0;
 		this.playing = true;
@@ -53,6 +54,7 @@ export class PlayerSession {
 			return;
 		}
 		this.history.push(this.index);
+		if (this.history.length > 500) this.history.shift();
 		if (this.order === "shuffle" && this.queue.length > 1) {
 			const offset =
 				1 +
@@ -82,16 +84,6 @@ export class PlayerSession {
 			0,
 			Math.min(this.current?.duration || 0, Number(value) || 0),
 		);
-	}
-
-	tick(seconds = 1) {
-		if (!this.playing || !this.current) return false;
-		this.elapsed += Math.max(0, Number(seconds) || 0);
-		if (this.elapsed >= this.current.duration) {
-			this.next({ automatic: true });
-			return true;
-		}
-		return false;
 	}
 
 	cycleOrder() {

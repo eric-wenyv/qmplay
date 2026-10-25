@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#665e50" />
     <meta name="description" content="间奏，一个只为听歌的极简播放器。" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' https: http:; connect-src 'self' http://127.0.0.1:3200; object-src 'none'; base-uri 'none'; form-action 'none'" />
     <title>间奏 · Interlude</title>
     <link rel="icon" type="image/svg+xml" href="./assets/icon.svg" />
     <link rel="stylesheet" href="./src/styles.css" />
@@ -16,7 +16,7 @@
       <header class="topbar">
         <div class="mode-control" data-open="false">
           <button id="mode-toggle" class="mode-toggle" type="button" aria-label="切换音乐来源：推荐电台" aria-haspopup="menu" aria-expanded="false" aria-controls="mode-menu" data-tip="推荐电台">
-            <span id="mode-icon" class="icon-slot"></span><span class="chevron icon-slot" data-icon="chevronDown"></span>
+            <span id="mode-icon" class="icon-slot"></span><span class="mode-dot" aria-hidden="true"></span>
           </button>
           <div id="mode-menu" class="mode-menu" role="menu" aria-label="音乐来源" aria-hidden="true" inert>
             <button class="mode-option" type="button" data-mode="radio" role="menuitemradio" aria-checked="true" aria-label="推荐电台" data-tip="推荐电台"><span class="icon-slot" data-icon="radio"></span><span class="mode-dot"></span></button>
@@ -24,7 +24,6 @@
             <button class="mode-option" type="button" data-mode="artist" role="menuitemradio" aria-checked="false" aria-label="歌手电台" data-tip="歌手电台"><span class="icon-slot" data-icon="artist"></span><span class="mode-dot"></span></button>
           </div>
         </div>
-        <div class="wordmark" aria-label="间奏 Interlude"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>间奏</span></div>
         <div class="topbar-right">
           <div class="volume-control">
             <button id="volume-toggle" class="icon-button small" type="button" aria-label="音量" aria-expanded="false" aria-controls="volume-popover" data-tip="音量"><span class="icon-slot" data-icon="volume"></span></button>
@@ -49,7 +48,7 @@
             <span class="cover-index" aria-hidden="true">01 — FM</span>
           </div>
           <div class="track-meta">
-            <div class="track-copy"><h1 id="track-title">夏日漱石</h1><p id="track-artist">橘子海 <span>·</span> 浪潮</p></div>
+            <div class="track-copy"><h1 id="track-title">间奏</h1><p id="track-artist">让音乐慢慢响起</p></div>
             <button id="like-toggle" class="icon-button like-button" type="button" aria-label="喜欢这首歌" aria-pressed="false" data-tip="喜欢"><span class="icon-slot" data-icon="heart"></span></button>
           </div>
         </div>
@@ -60,11 +59,19 @@
           <div id="search-empty" class="search-empty" hidden><span class="icon-slot" data-icon="search"></span><p>还没有找到这个声音</p></div>
         </section>
 
-        <section id="empty-view" class="empty-view" aria-label="喜欢的音乐为空" hidden><span class="empty-heart icon-slot" data-icon="heart"></span><p>留一首喜欢的歌给自己</p><button id="back-to-radio" class="text-button" type="button">去听电台 <span class="icon-slot" data-icon="arrowRight"></span></button></section>
+        <section id="browse-view" class="search-view" aria-label="选择电台" hidden>
+          <div class="browse-heading"><h2>听见此刻</h2><button id="close-browse" class="icon-button small" type="button" aria-label="返回播放器"><span class="icon-slot" data-icon="close"></span></button></div>
+          <div id="radio-results" class="artist-results"></div>
+        </section>
+        <section id="lyrics-view" class="search-view" aria-label="歌词" hidden>
+          <div class="browse-heading"><h2 id="lyrics-title">歌词</h2><button id="close-lyrics" class="icon-button small" type="button" aria-label="关闭歌词"><span class="icon-slot" data-icon="close"></span></button></div>
+          <div id="lyrics-lines" class="lyrics-lines"></div>
+        </section>
+        <section id="empty-view" class="empty-view" aria-label="暂无歌曲" hidden><span class="empty-heart icon-slot" data-icon="heart"></span><p id="empty-message">正在连接音乐服务…</p><button id="back-to-radio" class="text-button" type="button">去听电台 <span class="icon-slot" data-icon="arrowRight"></span></button></section>
       </section>
 
       <footer class="player-footer">
-        <div class="timeline"><input id="seek" type="range" min="0" max="192" value="84" step="1" aria-label="播放进度" /><div class="time-labels"><span id="elapsed">1:24</span><span id="duration">3:12</span></div></div>
+        <div class="timeline"><input id="seek" type="range" min="0" max="0" value="0" step="1" aria-label="播放进度" /><div class="time-labels"><span id="elapsed">0:00</span><span id="duration">0:00</span></div></div>
         <nav class="transport" aria-label="播放控制">
           <button id="order-toggle" class="icon-button side-control" type="button" aria-label="播放顺序：列表循环" data-tip="列表循环"><span class="icon-slot" data-icon="repeat"></span></button>
           <button id="previous-track" class="icon-button skip-control" type="button" aria-label="上一首" data-tip="上一首"><span class="icon-slot" data-icon="previous"></span></button>
@@ -74,11 +81,12 @@
         </nav>
       </footer>
 
+      <div id="notice" class="notice" role="status" hidden><span id="notice-message"></span><button id="notice-action" type="button" hidden>重试</button><button id="dismiss-notice" type="button" aria-label="关闭提示">×</button></div>
       <div id="queue-backdrop" class="queue-backdrop" hidden></div>
       <aside id="queue-panel" class="queue-panel" role="dialog" aria-modal="true" aria-label="播放队列" hidden>
         <header class="queue-header"><div><span class="eyebrow">UP NEXT</span><h2>播放队列 <span id="queue-count">06</span></h2></div><button id="close-queue" class="icon-button small" type="button" aria-label="关闭播放队列"><span class="icon-slot" data-icon="close"></span></button></header>
         <div id="queue-list" class="queue-list" aria-label="歌曲列表"></div>
-        <div class="queue-bottom"><span class="icon-slot" id="queue-order-icon" data-icon="repeat"></span><span id="queue-order-label">列表循环</span><span class="queue-bottom-line"></span></div>
+        <p id="queue-message" class="queue-message" role="status"></p><div class="queue-bottom"><span class="icon-slot" id="queue-order-icon" data-icon="repeat"></span><span id="queue-order-label">列表循环</span><span class="queue-bottom-line"></span><button id="load-more" type="button" class="text-button">再听一批</button><button id="clear-queue" type="button" class="text-button">清空</button></div>
       </aside>
       <div id="announcement" class="sr-only" aria-live="polite" role="status"></div>
     </main>

@@ -1,79 +1,141 @@
 # 间奏 · Interlude
 
-一个接近正方形的极简音乐播放器，按手绘草图实现的可交互前端原型。Electron 桌面端与浏览器预览共用同一套原生 HTML / CSS / JavaScript，无前端框架和运行时 CDN。
+基于 `qq-music-api` 的极简音乐播放器。保留原型的 540 × 580 紧凑窗口、白色控制键、封面取色背景，以及推荐电台、喜欢的音乐、歌手电台三种来源。浏览器与 Electron 共用原生 HTML / CSS / JavaScript。
 
-当前进度与待办见 [proton.md](proton.md)。
+现在接入真实歌曲和音频，不再使用演示数据或模拟播放进度。
 
-当前使用本地演示数据；播放按钮、进度、音量和切歌用于展示交互，**不会输出音乐，也尚未连接 QQ 账号与 QQ Music API**。封面为生成图，不是真实专辑封面。正式音频播放可在后续通过 HTMLAudioElement 接入。
+## 启动
 
-## 本地预览
+需要 Node.js 22.12+。`linux-qq` 的依赖安装使用 pnpm 11（`package.json` 固定为 11.25.0），`qq-music-api` 的依赖安装使用 npm。`npm run ...` 可以执行播放器脚本，不会改变依赖布局。两个仓库默认并排放置：
 
-需要 Node.js 22.12+ 和 pnpm 11。浏览器预览不需要安装依赖：
+```text
+Code/
+├── linux-qq/
+└── qq-music-api/
+```
+
+先安装 API 依赖：
+
+```sh
+cd /home/eric/Code/qq-music-api
+npm install
+```
+
+浏览器版不需要安装前端依赖：
 
 ```sh
 cd /home/eric/Code/linux-qq
-node scripts/serve.mjs
+npm run dev
 ```
 
-打开 <http://127.0.0.1:4173>。`PORT=4180 node scripts/serve.mjs` 可修改端口。服务仅监听本机。
+打开 <http://127.0.0.1:4173>。启动器会复用已经运行的 API，或自动启动相邻仓库的 API（默认 3200 端口）；退出时只停止自己启动的服务。首次加载每日新歌，不自动播放；点击播放后开始输出音频。
 
-也可直接双击 `output/preview.html` 查看完整离线原型，无需启动服务器。该文件由 `node scripts/build.mjs` 导出，内嵌全部样式、脚本和封面，仍支持交互。
+如果 API 已由其他方式管理，只启动界面：
 
-## Electron
+```sh
+npm run dev:ui
+```
+
+播放器固定使用本地 `http://127.0.0.1:3200` 服务。浏览器通过同源 `/api` 代理访问，Electron 直接访问本地服务。API 仓库位于其他目录时，可设置 `QQ_MUSIC_API_DIR=/path/to/qq-music-api`；页面端口可通过 `PORT=4180` 调整。
+
+播放时自动选择歌曲和浏览器支持的最高可用音质：FLAC → MP3 320 kbps → MP3 128 kbps → AAC。仅请求歌曲提供的格式；旧收藏缺少格式信息时按上述顺序探测。高音质返回空链接时继续尝试下一档，网络错误保留重试提示。应用不提供设置入口，旧版保存的服务地址和音质不会继续使用。
+
+## 桌面版
 
 ```sh
 pnpm install
+pnpm build
 pnpm start
 ```
 
-`pnpm start` 优先加载 `dist/`，不存在构建目录时直接加载源码。修改源码后执行 `pnpm build`，或删除已有的 `dist/` 后启动。
+`pnpm start` 会复用或启动相邻的 API，然后启动 Electron。已打包的应用需要另外在本机 3200 端口运行 API。
+
+Electron 启用 sandbox、contextIsolation 和 webSecurity，保留受限的最小化 / 关闭桥接。支持标题区拖动、调整窗口大小；窗口最小 380 × 520。`pnpm start` 优先加载 `dist/`，修改源码后需重新构建。
+
+发行构建：
 
 ```sh
-pnpm check
-pnpm test
-pnpm build
-pnpm pack:dir      # 当前平台未打包的可运行目录
+pnpm pack:dir      # 当前平台的可运行目录
 pnpm dist:linux    # AppImage + deb
-pnpm dist:mac      # dmg，建议在 macOS 构建
-pnpm dist:win      # NSIS，建议在 Windows 构建
+pnpm dist:mac      # dmg；在 macOS 上构建
+pnpm dist:win      # NSIS；在 Windows 上构建
 ```
 
-桌面窗口初始尺寸 540 × 580，支持拖动标题区域、调整窗口大小、最小化与关闭。保留 Linux / Windows / macOS 通用的窗口逻辑，不依赖系统毛玻璃、系统字体下载、绝对素材路径或原生 Node 插件。Linux 使用系统默认的 Chromium / Electron 平台后端，适配 X11 / Wayland；发行包仍需在目标系统实测。桌面端启用 sandbox、contextIsolation，并通过受限 preload 提供两个窗口操作。
+本项目的依赖镜像配置在 `.npmrc`，使用 `https://registry.npmmirror.com`。`package.json` 的 `config` 同时配置了 Electron 和 electron-builder 工具下载镜像，执行 `pnpm start`、`pnpm pack:dir`、`pnpm dist:linux` 时自动传给下载器。配置仅作用于当前项目。
 
-## 交互
+可检查和安装：
 
-- 左上状态按钮与电台 / 喜欢 / 歌手菜单共用一个连续胶囊外形，以 280ms 高度过渡展开和收起；菜单选项淡入，关闭后不可聚焦。鼠标悬停或键盘聚焦时显示名称。支持方向键选项和 Escape 收起。
-- 电台、喜欢直接换队列并进入演示播放；喜欢列表与音量、播放顺序保存在本机。取消最后一首喜欢后显示空态。
-- 歌手搜索已移除英文标题、推荐提示与结果数量，关闭按钮合并到搜索栏。
-- 歌手模式在中央显示搜索；支持中文、英文名、拼音，每位歌手一行，左侧头像，右侧名称和关注人数，点选歌手后回到播放器。
-- 底部五键依次为列表循环 / 随机 / 单曲循环、上一首、播放 / 暂停、下一首、播放队列。上一首在进度大于三秒时先回到开头。
-- 右上音量弹层支持静音，歌曲右侧爱心切换喜欢。队列支持点选歌曲、遮罩与 Escape 关闭，并管理键盘焦点。
-- 页面空白处聚焦时：空格播放 / 暂停，左右方向键切歌。按钮保留标准键盘行为，进度条方向键只调整进度。
-- 背景从当前封面取色并适度压暗，配合白色控制图标与白色播放键；切歌时跟随封面变化。无法读取封面像素时保留上一次主题。
-- 已移除底部的来源 / 序号状态行，收紧封面、歌曲信息与控制区间距。
-- 窄窗口自适应，支持减少动态效果的系统偏好；图标按钮均提供屏幕阅读器标签。
+```sh
+pnpm config get registry
+pnpm install --frozen-lockfile
+```
 
-## 后续接入 qq-music-api
+Electron 首次安装和发行构建需要能够下载 Electron 文件。本次环境没有桌面显示会话；浏览器功能已实测，原生窗口和安装包仍需在目标系统验证。
 
-`src/data.js` 中 `demoProvider` 是数据边界。界面只消费归一化的歌手和歌曲记录，切换成真实 provider 时保留这四个异步方法：
+### 安装出现 `EUNSUPPORTEDPROTOCOL` / `patch:`
 
-| 方法 | 返回值 / 对应现有后端能力 |
+如果在 `linux-qq` 中执行 `npm install`，且 `node_modules` 已由 pnpm 创建，npm 可能沿符号链接读取 `@electron-internal/extract-zip` 的开发依赖，从而尝试解析它内部的 Yarn `patch:@napi-rs/cli...` 声明。它不是播放器的直接依赖，也不需要切换到 Yarn。
+
+保留当前依赖目录，使用项目锁文件重新安装：
+
+```sh
+cd /home/eric/Code/linux-qq
+pnpm install --frozen-lockfile
+pnpm build
+pnpm start
+```
+
+`qq-music-api` 目录继续使用 `npm install`。Electron 可执行文件会在桌面版首次启动时按需下载；下载问题与此处的依赖协议错误应分别排查。
+
+## 功能
+
+- 推荐电台：每日新歌及 QQ 公共电台；选台后更新真实歌曲队列。电台队列结束时尝试获取下一批，也可在队列中点击“再听一批”。每日新歌列表未更新时会提示没有更多歌曲。
+- 歌手电台：中文 / 英文关键词联想、热门歌手、真实头像与可见歌手的关注人数；选择歌手后播放其热门歌曲，支持继续加载后续页。搜索防抖、取消过期请求，关注人数获取失败不阻断选歌。
+- 喜欢的音乐：收藏完整歌曲记录，重新启动后可直接恢复。本机收藏不与 QQ 账号同步。
+- 音频：自动选择最高可用音质，实际播放 / 暂停、拖动进度、上一首 / 下一首、音量 / 静音、列表循环 / 随机 / 单曲循环。上一首在进度超过三秒时先回到开头。
+- 歌词：点击封面查看，随音频高亮滚动，点击歌词定位进度。封面也支持 Enter / 空格打开歌词。支持多时间戳、毫秒与 LRC offset。
+- 队列：选曲、移除单曲、清空、继续加载；抽屉管理焦点、遮罩及 Escape 关闭。
+- 恢复：音量、播放顺序、来源、收藏、队列、当前歌曲及进度保存在本机，重启保持暂停。签名播放 URL 不持久化。
+- 错误处理：连接失败、超时、无播放权限、音频加载失败均显示提示及重试入口。请求失败时保留已有队列，旧播放请求不会覆盖新选歌曲。
+- 系统集成：通过 Media Session 提供歌曲信息、播放 / 暂停、切歌及定位能力，具体支持取决于操作系统和运行环境。
+
+快捷键：空白区域的空格播放 / 暂停，左右方向键切歌，Ctrl / ⌘ + K 搜索歌手，Escape 关闭当前面板。原生输入控件保留各自键盘行为。
+
+## 接口与代码
+
+| 能力 | qq-music-api 接口 |
 | --- | --- |
-| `searchArtists(query)` | 歌手数组；现有 `/getSearchByKey` 服务固定 `t: 0`，接入歌手搜索前需扩展后端检索类型 |
-| `getArtistTracks(artistId)` | 歌曲数组；对应 `/getSingerHotsong/:singermid` |
-| `getRadioTracks()` | 歌曲数组；对应 `/getRadioLists` 后选择电台、获取其歌曲 |
-| `getLikedTracks(ids)` | 歌曲数组；当前本机收藏，后续决定 QQ 收藏同步方案 |
+| 每日新歌 | `/getRecommend` |
+| 公共电台目录 / 曲目 | `/getRadioLists`、新增 `/getRadioTracks?id=199&firstplay=1` |
+| 歌手搜索 / 热门歌手 | `/getSmartbox?key=...`、`/getSingerList` |
+| 歌手曲目 / 关注人数 | `/getSingerHotsong`、`/getSingerStarNum` |
+| 播放地址 | `/getMusicPlay?songmid=...&mediaId=...&quality=...`（自动选择） |
+| 歌词 / 连接测试 | `/getLyric`、`/getHotkey` |
 
-歌手记录：`{ id, name, en, initial, avatarUrl, followerCount, color }`。`avatarUrl` 用于歌手头像，当前离线数据为空时保留首字头像；`followerCount` 为 QQ 音乐返回并归一化的非负整数，未知时显示“— 人关注”，不使用虚构粉丝数。真实接入时可使用 `/getSingerStarNum?singermid=...` 获取数据并依据实际响应映射。歌曲记录：`{ id, title, artist, artistId, album, duration, art }`。真实 provider 还需补充播放 URL、封面 URL、登录态、失败与加载状态，并按后端实际响应处理歌手搜索参数及电台曲目；当前没有猜测或调用未验证的接口。
+`src/api.js` 负责参数和响应归一化；`src/audio.js` 管实际媒体状态与请求竞态；`src/player.js` 管队列和播放顺序；`src/storage.js` 管本机保存；`src/app.js` 管界面与命令。`scripts/serve.mjs` 提供本机 API 代理，`electron/artwork.cjs` 提供受限的 QQ 图片代理，供背景取色复用。
 
-代码结构：`src/app.js` 管视图与事件，`src/player.js` 管队列 / 顺序 / 进度，`src/data.js` 管演示数据，`electron/` 管窗口与安全桥接。`tests/` 覆盖队列、播放顺序、搜索及数据来源切换。
+API 仓库新增的电台歌曲接口遵循 controller → service → UCommon，已同步注册路由、Explorer 元数据、测试和文档。
 
-封面文件 `assets/coast.jpg` 由内置 image_gen 生成。提示词与资源说明见 [assets/README.md](assets/README.md)。
+## 验证
 
-## 本次验证
+```sh
+npm run check
+npm test
+npm run build
+npm run test:integration  # 需要已运行的真实 API 和网络，验证接口与实际音频字节
+```
 
-2026-10-25：更新为紧凑布局、白色按钮与封面取色背景。JavaScript 语法检查、6 项单元测试、静态构建和离线 HTML 导出通过。浏览器检查确认切歌后背景取色变化、底部状态行移除、白色播放键，覆盖来源切换、歌手搜索与选择、队列选曲、收藏及其空态；380 × 520 窗口无横向溢出，搜索结果滚动区不遮挡底部控件，浏览器未记录警告或错误。
+本地测试覆盖响应归一化、无播放权限、超时、播放请求竞态、媒体事件、歌词、队列、存储及图片代理边界。`test:integration` 从当前推荐中尝试获取可播放音频；上游权限或网络变化可能导致此项失败。API 仓库运行 `npm run build`、`npm test -- --runInBand`。
 
-Electron 原生启动尚未验证：执行环境没有 DISPLAY / WAYLAND_DISPLAY；尝试生成 Linux 可运行目录时，Electron 发行文件下载连接超时，未生成安装包。请在可访问 Electron 下载源的 Linux 桌面中运行 `pnpm start` / `pnpm pack:dir`，再进行系统与发行格式验证。
+构建产物在 `dist/`。历史 `output/preview.html` 是旧原型的离线导出，不作为当前应用入口；`scripts/export-preview.mjs` 现在构建真实应用并提示启动本地服务。
 
-`output/player.jpg`、`output/artist-search.jpg`、`output/queue.jpg`、`output/mode-menu.jpg` 为浏览器设计预览截图。
+## 账号和播放权限
+
+当前后端没有完整登录流程，本应用不提供扫码登录、QQ 收藏同步或下载功能。播放链接和可用音质由 QQ 音乐返回，付费或受限歌曲可能无法播放；应用会提示并允许切歌。需要登录态时，应在 API 服务端按其配置方式设置，客户端不收集或保存账号 Cookie。
+
+默认占位封面来源及说明见 [assets/README.md](assets/README.md)。仅用于学习与个人调试，遵循上游服务和 API 仓库的使用约束。
+
+
+顶部已移除“间奏”标识和设置按钮。来源展示按钮与列表选项均为 44 × 44 的方形按钮，图标为 22 × 22；收起按钮与选中选项使用相同的背景、图标和状态点；已移除展开箭头。展开时同一个选中图标按钮在约 320ms 内滑到列表对应位置（电台 / 喜欢 / 歌手依次为第 1 / 2 / 3 项），收起时滑回顶部；其他选项和外框淡入淡出，不再通过隐藏和重新显示图标切换状态。选择其他来源时，该选项从点击位置滑回顶部。支持快速反向切换和系统减少动态效果设置。
+
+来源按钮距窗口顶部与左侧等距，容器与图标居中；窗口、来源菜单外框和选项统一使用 16px 圆角。右上角已移除独立歌词按钮，Electron 的最小化 / 关闭按钮均为 28 × 28 的圆形，图标为 14 × 14。

@@ -9,6 +9,7 @@ const {
 const path = require("node:path");
 const fs = require("node:fs");
 const { pathToFileURL } = require("node:url");
+const { fetchArtwork } = require("./artwork.cjs");
 
 protocol.registerSchemesAsPrivileged([
 	{
@@ -64,6 +65,8 @@ app.whenReady().then(() => {
 		const url = new URL(request.url);
 		if (url.host !== "app" || request.method !== "GET")
 			return new Response("Not found", { status: 404 });
+		if (url.pathname === "/art")
+			return fetchArtwork(url.searchParams.get("url"));
 		let resourcePath;
 		try {
 			resourcePath = decodeURIComponent(url.pathname);
