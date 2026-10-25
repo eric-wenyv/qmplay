@@ -1,6 +1,22 @@
+# Dependencies and build output
 node_modules/
 dist/
 release/
 output/
 .sites-runtime/
+
+# Local caches and diagnostics
+coverage/
+.nyc_output/
+.cache/
+*.log
+*.tsbuildinfo
+
+# Local project documentation (keep third-party and license notices)
+README.md
+proton.md
+/docs/
+!licenses/**/README.md
+
+# OS files
 .DS_Store

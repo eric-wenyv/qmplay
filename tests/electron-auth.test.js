@@ -53,7 +53,8 @@ async function desktop(jar, replies, profiles = []) {
       },
     },
     session: { defaultSession: { cookies } },
-    Menu: { setApplicationMenu() {} },
+    Menu: { setApplicationMenu() {}, buildFromTemplate: (items) => items },
+    Tray: class { setToolTip() {} setContextMenu() {} on() {} },
     ipcMain: { on() {} },
     BrowserWindow: Window,
   };

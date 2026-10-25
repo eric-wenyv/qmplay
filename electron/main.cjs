@@ -5,6 +5,7 @@ const {
 	protocol,
 	net,
 	Menu,
+	Tray,
 	session,
 	utilityProcess,
 } = require("electron");
@@ -48,6 +49,8 @@ const backend = createBackendController({
 	}),
 });
 let window;
+let tray;
+let quitting = false;
 const rendererRoot = fs.existsSync(path.join(__dirname, "../dist/index.html"))
 	? path.join(__dirname, "../dist")
 	: path.join(__dirname, "..");
@@ -71,6 +74,8 @@ function createWindow() {
 			nodeIntegration: false,
 			sandbox: true,
 			webSecurity: true,
+			// Keep playback events and track changes running while the window is hidden.
+			backgroundThrottling: false,
 		},
 	});
 	window.once("ready-to-show", () => window.show());
@@ -80,9 +85,35 @@ function createWindow() {
 		(_contents, _permission, callback) => callback(false),
 	);
 	window.loadURL("interlude://app/index.html");
+	window.on("close", (event) => {
+		if (quitting) return;
+		event.preventDefault();
+		window.hide();
+	});
 	window.on("closed", () => {
 		window = null;
 	});
+}
+
+function showWindow() {
+	if (quitting) return;
+	if (!window) {
+		createWindow();
+		return;
+	}
+	if (window.isMinimized()) window.restore();
+	window.show();
+	window.focus();
+}
+
+function createTray() {
+	tray = new Tray(path.join(rendererRoot, "assets/icon.png"));
+	tray.setToolTip("qqmui");
+	tray.setContextMenu(Menu.buildFromTemplate([
+		{ label: "显示", click: showWindow },
+		{ label: "退出", click: () => app.quit() },
+	]));
+	tray.on("click", showWindow);
 }
 
 const hasInstanceLock = app.requestSingleInstanceLock();
@@ -156,19 +187,18 @@ else app.whenReady().then(async () => {
 				window[action]();
 		});
 	}
+	createTray();
 	createWindow();
-	app.on("activate", () => {
-		if (BrowserWindow.getAllWindows().length === 0) createWindow();
-	});
+	app.on("activate", showWindow);
+	app.on("second-instance", showWindow);
 });
-app.on("second-instance", () => {
-	if (window) {
-		if (window.isMinimized()) window.restore();
-		window.show();
-		window.focus();
-	}
+app.on("before-quit", () => {
+	quitting = true;
+	backend.stop();
 });
-app.on("before-quit", () => backend.stop());
-app.on("window-all-closed", () => {
-	if (process.platform !== "darwin") app.quit();
+app.on("will-quit", () => {
+	tray?.destroy();
+	tray = null;
 });
+// The tray owns the application lifetime; closing a window must not end playback.
+app.on("window-all-closed", () => {});
