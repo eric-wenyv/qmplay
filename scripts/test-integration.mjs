@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import { QQMusicProvider } from "../src/api.js";
-const address = process.env.QQ_MUSIC_API_URL || "http://127.0.0.1:3200";
-const provider = new QQMusicProvider({ baseUrl: address });
+import { ensureBackend } from "./backend.mjs";
+const backend = await ensureBackend();
+const provider = new QQMusicProvider({
+	baseUrl: backend.connection.origin,
+	fetcher: async (url, options = {}) => {
+		const headers = new Headers(options.headers);
+		headers.set("X-QQMUI-Token", (await backend.start()).token);
+		return fetch(url, { ...options, headers });
+	},
+});
+try {
 await provider.checkConnection();
 const artists = await provider.searchArtists("周杰伦");
 assert(artists.some((artist) => artist.name === "周杰伦"));
@@ -46,3 +55,5 @@ assert(
 	playable,
 	"No playable audio in the first five recommendations. Check network and upstream permissions.",
 );
+
+} finally { backend.stop(); }

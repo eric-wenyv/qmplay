@@ -6,10 +6,13 @@ const {
 	net,
 	Menu,
 	session,
+	utilityProcess,
 } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const { pathToFileURL } = require("node:url");
+const os = require("node:os");
+const { createBackendController } = require("./backend.cjs");
 const { fetchArtwork } = require("./artwork.cjs");
 const { API_ORIGIN, proxyApi } = require("./api.cjs");
 const { authCookieHeader, storeAuthCookies } = require("./auth-cookies.cjs");
@@ -35,6 +38,15 @@ const userData = ["qqmui", "Interlude", "间奏", "interlude-player"]
 fs.mkdirSync(userData, { recursive: true });
 app.setPath("userData", userData);
 app.setPath("sessionData", userData);
+const legacyAuthDirectory = path.join(os.homedir(), ".local/share/qq-music-api/auth");
+const backend = createBackendController({
+	entry: path.join(__dirname, "../dist/backend/server.cjs"),
+	authDirectory: process.env.QQ_MUSIC_AUTH_DIR ||
+		(fs.existsSync(legacyAuthDirectory) ? legacyAuthDirectory : path.join(userData, "auth")),
+	spawn: (entry, env) => utilityProcess.fork(entry, [], {
+		env, cwd: userData, stdio: "pipe", serviceName: "qqmui Music API",
+	}),
+});
 let window;
 const rendererRoot = fs.existsSync(path.join(__dirname, "../dist/index.html"))
 	? path.join(__dirname, "../dist")
@@ -46,7 +58,8 @@ function createWindow() {
 		height: 580,
 		minWidth: 380,
 		minHeight: 520,
-		backgroundColor: "#665e50",
+		backgroundColor: "#00000000",
+		transparent: true,
 		title: "qqmui · qq music ui",
 		frame: false,
 		show: false,
@@ -72,7 +85,11 @@ function createWindow() {
 	});
 }
 
-app.whenReady().then(() => {
+const hasInstanceLock = app.requestSingleInstanceLock();
+if (!hasInstanceLock) app.quit();
+else app.whenReady().then(async () => {
+	// A failed launch remains retryable through the existing authentication error UI.
+	await backend.start().catch(() => {});
 	protocol.handle("interlude", async (request) => {
 		const url = new URL(request.url);
 		if (url.host !== "app")
@@ -82,6 +99,7 @@ app.whenReady().then(() => {
 				const cookies = await session.defaultSession.cookies.get({ url: API_ORIGIN });
 				const response = await proxyApi(url.pathname.slice(4), url.search, {
 					method: request.method,
+					connection: await backend.start(),
 					headers: { "Content-Type": "application/json", Origin: "interlude://app",
 						Cookie: authCookieHeader(cookies) },
 					body: request.method === "POST" ? await request.text() : undefined,
@@ -89,6 +107,7 @@ app.whenReady().then(() => {
 				await storeAuthCookies(session.defaultSession.cookies, response.headers);
 				const headers = new Headers(response.headers);
 				headers.delete("set-cookie");
+				headers.delete("x-qqmui-token");
 				headers.set("Cache-Control", "no-store");
 				return new Response(response.body, { status: response.status, headers });
 			} catch {
@@ -142,6 +161,14 @@ app.whenReady().then(() => {
 		if (BrowserWindow.getAllWindows().length === 0) createWindow();
 	});
 });
+app.on("second-instance", () => {
+	if (window) {
+		if (window.isMinimized()) window.restore();
+		window.show();
+		window.focus();
+	}
+});
+app.on("before-quit", () => backend.stop());
 app.on("window-all-closed", () => {
 	if (process.platform !== "darwin") app.quit();
 });

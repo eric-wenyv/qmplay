@@ -25,8 +25,6 @@ const provider = new QQMusicProvider({
 		.filter(([, mime]) => audio.canPlayType(mime))
 		.map(([quality]) => quality),
 });
-let volume = preferences.volume;
-let lastVolume = volume || 65;
 let mode = preferences.mode;
 let selectedArtist = preferences.artist;
 let station = preferences.station;
@@ -90,7 +88,6 @@ function savePreferences() {
 	const success = writeLibrary({
 		liked: activeUser ? [...liked.values()] : preferences.liked,
 		accountUin: activeUser?.uin || preferences.accountUin || "",
-		volume,
 		order: session.order,
 		queue: session.queue,
 		currentId: session.current?.id,
@@ -427,11 +424,6 @@ function closeModeMenu({ focus = false } = {}) {
 	setModeMenu(false);
 	if (restore) $("#mode-toggle").focus();
 }
-function closeVolume({ focus = false } = {}) {
-	$("#volume-popover").hidden = true;
-	$("#volume-toggle").setAttribute("aria-expanded", "false");
-	if (focus) $("#volume-toggle").focus();
-}
 function returnToPlayer() {
 	sourceVersion++;
 	sourceLoading = false;
@@ -442,7 +434,6 @@ function showSearch() {
 	sourceVersion++;
 	sourceLoading = false;
 	closeModeMenu();
-	closeVolume();
 	setView("search");
 	$("#search-input").value = "";
 	void renderArtists("");
@@ -512,7 +503,6 @@ async function showRadio() {
 	sourceVersion++;
 	sourceLoading = false;
 	closeModeMenu();
-	closeVolume();
 	setView("browse");
 	const version = sourceVersion;
 	$("#close-browse").focus();
@@ -661,23 +651,6 @@ async function advance(direction, automatic = false) {
 	direction === "next" ? session.next() : session.previous();
 	void loadCurrent({ autoplay });
 }
-function updateVolume() {
-	$("#volume").value = volume;
-	$("#volume-value").textContent = volume;
-	$("#volume-toggle .icon-slot").innerHTML = icon(
-		volume === 0 ? "muted" : "volume",
-	);
-	$("#mute-toggle .icon-slot").innerHTML = icon(
-		volume === 0 ? "muted" : "volume",
-	);
-	$("#mute-toggle").setAttribute(
-		"aria-label",
-		volume === 0 ? "取消静音" : "静音",
-	);
-	$("#volume-toggle").dataset.tip = volume === 0 ? "已静音" : `音量 ${volume}%`;
-	transport.setVolume(volume);
-	savePreferences();
-}
 function updateOrder() {
 	$("#order-toggle").innerHTML =
 		`<span class="icon-slot">${icon(session.order)}</span>`;
@@ -692,7 +665,6 @@ function updateOrder() {
 function openQueue() {
 	$("#queue-message").textContent = "";
 	closeModeMenu();
-	closeVolume();
 	renderQueue();
 	$("#queue-panel").hidden = false;
 	$("#queue-backdrop").hidden = false;
@@ -795,7 +767,6 @@ function showLyrics() {
 }
 $("#mode-toggle").addEventListener("click", () => {
 	const opening = !modeMenuOpen;
-	closeVolume();
 	setModeMenu(opening);
 	if (opening) $('.mode-option[aria-checked="true"]').focus();
 });
@@ -820,22 +791,6 @@ $("#mode-menu").addEventListener("keydown", (event) => {
 				: (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) %
 					buttons.length
 	].focus();
-});
-$("#volume-toggle").addEventListener("click", () => {
-	const opening = $("#volume-popover").hidden;
-	closeModeMenu();
-	$("#volume-popover").hidden = !opening;
-	$("#volume-toggle").setAttribute("aria-expanded", String(opening));
-	if (opening) $("#volume").focus();
-});
-$("#volume").addEventListener("input", (event) => {
-	volume = Number(event.target.value);
-	if (volume > 0) lastVolume = volume;
-	updateVolume();
-});
-$("#mute-toggle").addEventListener("click", () => {
-	volume = volume === 0 ? lastVolume : 0;
-	updateVolume();
 });
 $("#artist-search").addEventListener("submit", (event) => {
 	event.preventDefault();
@@ -958,11 +913,6 @@ $("#dismiss-notice").addEventListener("click", dismissNotice);
 for (const name of ["pointerdown", "focusin"])
 	document.addEventListener(name, (event) => {
 		if (!event.target.closest(".mode-control") && modeMenuOpen) closeModeMenu();
-		if (
-			!event.target.closest(".volume-control") &&
-			!$("#volume-popover").hidden
-		)
-			closeVolume();
 	});
 document.addEventListener("keydown", (event) => {
 	if (!authReady) return;
@@ -974,7 +924,6 @@ document.addEventListener("keydown", (event) => {
 	if (event.key === "Escape") {
 		if (!$("#queue-panel").hidden) closeQueue();
 		else if (modeMenuOpen) closeModeMenu({ focus: true });
-		else if (!$("#volume-popover").hidden) closeVolume({ focus: true });
 		else if (view !== "player") {
 			sourceVersion++;
 			sourceLoading = false;
@@ -1039,6 +988,7 @@ if (navigator.mediaSession) {
 	}
 }
 if (window.interludeDesktop) {
+	document.documentElement.classList.add("desktop");
 	document.body.classList.add("desktop");
 	$(".window-controls").hidden = false;
 	$("#minimize-window").addEventListener("click", () =>
@@ -1087,7 +1037,6 @@ const authentication = new Authentication({
 		$("#auth-retry").textContent = state === "unavailable" ? "重新连接" : "刷新二维码";
 		$("#auth-retry").onclick = () => state === "unavailable" ? authentication.start() : authentication.login();
 		$(".mode-control").inert = !authReady;
-		$(".volume-control").inert = !authReady;
 		if (authReady) startPlayer();
 	},
 	async onAuthenticated(user) {
@@ -1141,7 +1090,7 @@ function startPlayer() {
 	session.order = preferences.order;
 	session.setQueue(mode === "liked" ? [...liked.values()] : preferences.queue, { autoplay: false, trackId: preferences.currentId });
 	session.seek(preferences.elapsed);
-	updateOrder(); updateVolume(); render();
+	updateOrder(); render();
 	savePreferences();
 	if (session.current) void loadCurrent({ elapsed: session.elapsed });
 	else if (mode === "liked") void switchSource("liked", null, { autoplay: false });

@@ -1,10 +1,2 @@
-import { ensureBackend } from "./backend.mjs";
-try {
-	const backend = await ensureBackend();
-	for (const signal of ["SIGINT", "SIGTERM"])
-		process.on(signal, () => backend?.kill("SIGTERM"));
-	await import("./serve.mjs");
-} catch (error) {
-	console.error(error.message);
-	process.exitCode = 1;
-}
+// The same browser launcher owns both its UI server and private embedded API.
+import "./serve.mjs";

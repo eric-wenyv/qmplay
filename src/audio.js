@@ -130,7 +130,4 @@ export class AudioTransport {
 		else this.pendingSeek = time;
 		this.onProgress(time, duration);
 	}
-	setVolume(value) {
-		this.audio.volume = Math.max(0, Math.min(1, value / 100));
-	}
 }

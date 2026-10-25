@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { readdirSync, existsSync } from "node:fs";
 import { resolve, extname } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -19,3 +19,7 @@ for (const file of files) {
 	if (result.status !== 0) process.exit(result.status || 1);
 }
 console.log(`Syntax checked ${files.length} JavaScript files.`);
+if (existsSync("backend/tsconfig.json")) {
+	const result = spawnSync(process.execPath, ["node_modules/typescript/bin/tsc", "-p", "backend/tsconfig.json", "--noEmit"], { stdio: "inherit" });
+	if (result.status !== 0) process.exit(result.status || 1);
+}

@@ -18,9 +18,6 @@ export function readLibrary(storage = globalThis.localStorage) {
 			queue: Array.isArray(data.queue)
 				? data.queue.filter(validTrack).slice(0, 1000)
 				: [],
-			volume: Number.isFinite(data.volume)
-				? Math.max(0, Math.min(100, data.volume))
-				: 65,
 			order: ["repeat", "shuffle", "repeatOne"].includes(data.order)
 				? data.order
 				: "repeat",
@@ -40,7 +37,6 @@ export function readLibrary(storage = globalThis.localStorage) {
 		return {
 			liked: [],
 			queue: [],
-			volume: 65,
 			order: "repeat",
 			mode: "radio",
 			station: { id: "new", name: "每日新歌" },
@@ -51,8 +47,8 @@ export function readLibrary(storage = globalThis.localStorage) {
 }
 export function writeLibrary(data, storage = globalThis.localStorage) {
 	try {
-		// Legacy service/quality settings and expiring audio URLs are never persisted.
-		const { baseUrl, quality, ...library } = data;
+		// System audio controls replace legacy volume; discard old service/quality settings too.
+		const { baseUrl, quality, volume, ...library } = data;
 		const clean = (track) => {
 			const { url, playbackUrl, ...value } = track;
 			return value;

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#665e50" />
     <meta name="description" content="qqmui（qq music ui），面向 Linux 的极简 QQ 音乐播放器。" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' https: http:; connect-src 'self' http://127.0.0.1:3200; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' https: http:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
     <title>qqmui · qq music ui</title>
     <link rel="icon" type="image/svg+xml" href="./assets/icon.svg" />
     <link rel="stylesheet" href="./src/styles.css" />
@@ -24,19 +24,9 @@
             <button class="mode-option" type="button" data-mode="artist" role="menuitemradio" aria-checked="false" aria-label="歌手电台" data-tip="歌手电台"><span class="icon-slot" data-icon="artist"></span><span class="mode-dot"></span></button>
           </div>
         </div>
-        <div class="topbar-right">
-          <div class="volume-control">
-            <button id="volume-toggle" class="icon-button small" type="button" aria-label="音量" aria-expanded="false" aria-controls="volume-popover" data-tip="音量"><span class="icon-slot" data-icon="volume"></span></button>
-            <div id="volume-popover" class="volume-popover popover" hidden>
-              <button id="mute-toggle" class="icon-button" type="button" aria-label="静音"><span class="icon-slot" data-icon="volume"></span></button>
-              <input id="volume" type="range" min="0" max="100" value="65" aria-label="音量" />
-              <output id="volume-value" for="volume">65</output>
-            </div>
-          </div>
-          <div class="window-controls" hidden>
-            <button id="minimize-window" class="icon-button small" type="button" aria-label="最小化"><span class="icon-slot" data-icon="minus"></span></button>
-            <button id="close-window" class="icon-button small" type="button" aria-label="关闭窗口"><span class="icon-slot" data-icon="close"></span></button>
-          </div>
+        <div class="window-controls" aria-label="窗口控制" hidden>
+          <button id="minimize-window" class="icon-button" type="button" aria-label="最小化"><span class="icon-slot" data-icon="minus"></span></button>
+          <button id="close-window" class="icon-button" type="button" aria-label="关闭窗口"><span class="icon-slot" data-icon="close"></span></button>
         </div>
       </header>
 

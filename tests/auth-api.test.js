@@ -60,15 +60,17 @@ test('legacy favorites resolve their numeric song ID before writing and never se
   assert.deepEqual(JSON.parse(requests[1][1].body), { songId: 11, songType: 0, liked: true });
   assert.equal(requests[1][1].credentials, 'same-origin');
 });
-test('fixed API proxy forwards only allowed methods and credential headers, without arbitrary targets', async () => {
+test('private API proxy forwards only allowed methods and credential headers, without arbitrary targets', async () => {
   let captured;
   const response = await proxy.proxyApi('/auth/qr', '', {
     method: 'POST',
+    connection: { origin: 'http://127.0.0.1:43210', token: 'a'.repeat(64) },
     body: '{}',
     headers: {
       Cookie: 'opaque=session',
       Origin: 'http://127.0.0.1:4173',
       'X-Untrusted': 'ignored',
+      'X-QQMUI-Token': 'renderer-cannot-override-this',
     },
     fetcher: async (url, options) => {
       captured = [url, options];
@@ -76,9 +78,21 @@ test('fixed API proxy forwards only allowed methods and credential headers, with
     },
   });
   assert.equal(response.status, 200);
-  assert.equal(captured[0], 'http://127.0.0.1:3200/auth/qr');
+  assert.equal(captured[0], 'http://127.0.0.1:43210/auth/qr');
+  assert.equal(captured[1].headers.get('X-QQMUI-Token'), 'a'.repeat(64));
   assert.equal(captured[1].headers.get('Cookie'), 'opaque=session');
   assert.equal(captured[1].headers.has('X-Untrusted'), false);
   assert.equal((await proxy.proxyApi('/user/setCookie', '', { method: 'POST' })).status, 404);
   assert.equal((await proxy.proxyApi('/getLyric', '', { method: 'POST' })).status, 404);
+});
+
+test('API proxy rejects absent or remote backend configuration and excludes read access to write-only auth routes', async () => {
+  await assert.rejects(proxy.proxyApi('/auth/status', ''), /尚未就绪/);
+  await assert.rejects(proxy.proxyApi('/auth/status', '', {
+    connection: { origin: 'http://example.com:43210', token: 'a'.repeat(64) },
+  }), /尚未就绪/);
+  assert.equal((await proxy.proxyApi('/auth/qr', '', { method: 'GET' })).status, 404);
+  assert.equal((await proxy.proxyApi('/auth/status', '#redirect', {
+    connection: { origin: 'http://127.0.0.1:43210', token: 'a'.repeat(64) },
+  })).status, 400);
 });

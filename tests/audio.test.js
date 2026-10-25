@@ -60,7 +60,7 @@ test("pause cancels an in-flight play request and cannot start audio after resol
 	assert.equal(audio.paused, true);
 	assert.equal(transport.desiredPlaying, false);
 });
-test("media events drive progress, duration, seek, volume and completion", async () => {
+test("media events drive progress, duration, seek and completion", async () => {
 	const audio = new FakeAudio();
 	let progress,
 		ended = false;
@@ -82,8 +82,6 @@ test("media events drive progress, duration, seek, volume and completion", async
 	assert.deepEqual(progress, [35, 200]);
 	transport.seek(800);
 	assert.equal(audio.currentTime, 200);
-	transport.setVolume(43);
-	assert.equal(audio.volume, 0.43);
 	audio.dispatchEvent(new Event("ended"));
 	assert.equal(ended, true);
 });

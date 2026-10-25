@@ -50,7 +50,7 @@ function app() {
 		document, window: { addEventListener() {} }, navigator: {},
 		Audio, AudioTransport, PlayerSession, formatTime, orderLabels, AbortController,
 		icon: () => "", artworkUrl: (url) => url || "",
-		readLibrary: () => ({ volume: 65, mode: "radio", station: { id: "new", name: "每日新歌" } }),
+		readLibrary: () => ({ mode: "radio", station: { id: "new", name: "每日新歌" } }),
 		writeLibrary: () => true,
 		Authentication: class { start() {} }, FavoriteSync: class {},
 		QQMusicProvider: class {

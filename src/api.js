@@ -154,7 +154,7 @@ export class QQMusicProvider {
 				try { detail = (await response.json()).error; } catch { /* Fall back to status. */ }
 				const error = new Error(detail?.message || (
 					response.status === 502
-						? "无法连接本地音乐服务，请确认 qq-music-api 已在 3200 端口启动"
+						? "内置音乐服务暂时无法连接，请重试或重新打开应用"
 						: `音乐服务请求失败（${response.status}）`
 				));
 				error.code = detail?.code;
@@ -163,14 +163,14 @@ export class QQMusicProvider {
 			try {
 				result = await response.json();
 			} catch {
-				throw new Error("本地音乐服务返回了无效数据，请检查 qq-music-api");
+				throw new Error("内置音乐服务返回了无效数据，请重试");
 			}
 		} catch (error) {
 			if (signal?.aborted) throw error;
 			if (timeout.aborted) throw new Error("音乐服务响应超时，请重试");
 			if (error instanceof TypeError)
 				throw new Error(
-					"无法连接本地音乐服务，请确认 qq-music-api 已在 3200 端口启动",
+					"内置音乐服务暂时无法连接，请重试或重新打开应用",
 				);
 			throw error;
 		}

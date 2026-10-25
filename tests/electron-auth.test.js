@@ -36,6 +36,7 @@ async function desktop(jar, replies, profiles = []) {
   }
   const electron = {
     app: {
+      requestSingleInstanceLock: () => true,
       setName: (name) => { identity.name = name; },
       getPath: () => '/profiles',
       setPath: (key, value) => {
@@ -62,6 +63,8 @@ async function desktop(jar, replies, profiles = []) {
         ? electron
         : id === './artwork.cjs'
           ? {}
+          : id === './backend.cjs'
+            ? { createBackendController: () => ({ start: async () => ({ origin: 'http://127.0.0.1:43210', token: 'a'.repeat(64) }), stop() {} }) }
           : id === './auth-cookies.cjs'
             ? require('../electron/auth-cookies.cjs')
           : id === 'node:fs'
@@ -85,7 +88,7 @@ async function desktop(jar, replies, profiles = []) {
               }
             : require(id),
     __dirname: new URL('../electron/', import.meta.url).pathname,
-    process: { platform: 'linux' },
+    process: { platform: 'linux', env: {} },
     URL,
     Response,
     Headers,
@@ -113,6 +116,7 @@ test('desktop stores HttpOnly session cookies in the persistent jar, restores th
   const first = await desktop(jar, [
     new Response('{"data":{"state":"authenticated"}}', {
       headers: {
+        'X-QQMUI-Token': 'internal-token-never-exposed',
         'Set-Cookie':
           `qq_music_session=opaque-token; Expires=${new Date(Date.now() + 2592000000).toUTCString()}; HttpOnly; SameSite=Strict; Path=/`,
       },
@@ -123,6 +127,7 @@ test('desktop stores HttpOnly session cookies in the persistent jar, restores th
   );
   assert.equal(response.status, 200);
   assert.equal(response.headers.has('set-cookie'), false);
+  assert.equal(response.headers.has('x-qqmui-token'), false);
   assert.equal(jar.get('qq_music_session').httpOnly, true);
   assert.equal(jar.get('qq_music_session').sameSite, 'strict');
   assert(jar.get('qq_music_session').expirationDate > Date.now() / 1000);
@@ -135,6 +140,8 @@ test('desktop stores HttpOnly session cookies in the persistent jar, restores th
   await restored.handler(new Request('interlude://app/api/auth/status'));
   assert.match(restored.requests[0][2].headers.Cookie, /qq_music_session=opaque-token/);
   assert.equal(restored.requests[0][2].headers.Origin, 'interlude://app');
+  assert.equal(restored.requests[0][2].connection.origin, 'http://127.0.0.1:43210');
+  assert.equal(restored.requests[0][2].connection.token.length, 64);
   await restored.handler(
     new Request('interlude://app/api/auth/logout', { method: 'POST', body: '{}' }),
   );

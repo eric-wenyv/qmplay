@@ -1,81 +1,28 @@
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { fork } from "node:child_process";
 import { fileURLToPath } from "node:url";
-export async function ensureBackend() {
-	const address = "http://127.0.0.1:3200";
-	try {
-		const response = await fetch(`${address}/explorer/metadata`, {
-			signal: AbortSignal.timeout(1500),
-		});
-		if (response.ok) {
-			const metadata = await response.json();
-			if (Array.isArray(metadata.endpoints)) {
-				if (!metadata.endpoints.some(endpoint => endpoint.path === "/auth/status"))
-					throw new Error("BACKEND_RESTART_REQUIRED");
-				return null;
-			}
-		}
-	} catch (error) {
-		if (error.message === "BACKEND_RESTART_REQUIRED")
-			throw new Error("3200 端口上的 API 版本不支持登录，请重启 qq-music-api 后再启动播放器。");
-		/* Start the adjacent checkout if a service is not already running. */
-	}
-	const directory =
-		process.env.QQ_MUSIC_API_DIR ||
-		fileURLToPath(new URL("../../qq-music-api/", import.meta.url));
-	if (
-		!existsSync(`${directory}/node_modules/ts-node/register/transpile-only.js`)
-	)
-		throw new Error(`未找到 API 依赖。请在 ${directory} 执行 npm install。`);
-	const child = spawn(
-		process.execPath,
-		["-r", "ts-node/register/transpile-only", "src/app.ts"],
-		{
-			cwd: directory,
-			stdio: ["ignore", "pipe", "pipe"],
-			env: { ...process.env, PORT: "3200", AUTO_OPEN_EXPLORER: "false" },
-		},
-	);
-	// The upstream server can log signed links; do not copy these into the renderer.
-	let spawnError = null;
-	child.stdout.resume();
-	let diagnosticBuffer = "";
-	child.stderr.on("data", chunk => {
-		diagnosticBuffer += chunk.toString();
-		const lines = diagnosticBuffer.split("\n");
-		diagnosticBuffer = lines.pop().slice(-4096);
-		for (const line of lines) {
-			// This event contains only host, path, status and error code, never credentials.
-			if (line.startsWith("auth.upstream.unavailable ")) console.warn(line);
-		}
-	});
-	child.on("error", (error) => {
-		spawnError = error;
-	});
-	const cleanup = () => {
-		if (child.exitCode === null) child.kill("SIGTERM");
-	};
-	process.once("exit", cleanup);
-	for (let attempt = 0; attempt < 50; attempt++) {
-		if (spawnError || child.exitCode !== null) {
-			cleanup();
-			throw new Error(
-				`音乐服务启动失败（${child.exitCode}）。请手动运行 qq-music-api 检查配置。`,
-			);
-		}
-		try {
-			const response = await fetch(`${address}/explorer/metadata`, {
-				signal: AbortSignal.timeout(500),
-			});
-			if (response.ok) {
-				console.log(`QQ Music API: ${address}`);
-				return child;
-			}
-		} catch {
-			/* Wait for startup. */
-		}
-		await new Promise((resolve) => setTimeout(resolve, 200));
-	}
-	cleanup();
-	throw new Error("音乐服务启动超时，请手动启动 qq-music-api 后重试。");
+import lifecycle from "../electron/backend.cjs";
+import { buildBackend } from "./build-backend.mjs";
+
+export async function ensureBackend({ build = true } = {}) {
+  if (build) await buildBackend();
+  const backend = lifecycle.createBackendController({
+    entry: fileURLToPath(new URL("../dist/backend/server.cjs", import.meta.url)),
+    spawn: (entry, env) => fork(entry, [], {
+      env, stdio: ["ignore", "pipe", "pipe", "ipc"],
+    }),
+  });
+  const cleanup = () => backend.stop();
+  process.once("exit", cleanup);
+  try {
+    const connection = await backend.start();
+    return {
+      connection,
+      start: () => backend.start(),
+      stop: () => { process.removeListener("exit", cleanup); backend.stop(); },
+    };
+  } catch (error) {
+    process.removeListener("exit", cleanup);
+    backend.stop();
+    throw error;
+  }
 }

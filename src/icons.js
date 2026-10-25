@@ -7,9 +7,6 @@ const paths = {
 		'<circle cx="12" cy="8" r="4"/><path d="M4.5 21v-2a7.5 7.5 0 0 1 15 0v2"/>',
 	close: '<path d="m6 6 12 12M6 18 18 6"/>',
 	minus: '<path d="M5 12h14"/>',
-	volume:
-		'<path d="m11 4-5 4H3v8h3l5 4V4Z"/><path d="M15.5 8a6 6 0 0 1 0 8M18.5 5a10 10 0 0 1 0 14"/>',
-	muted: '<path d="m11 4-5 4H3v8h3l5 4V4ZM17 9l5 6M17 15l5-6"/>',
 	search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/>',
 	arrowRight: '<path d="M4 12h15m-5-5 5 5-5 5"/>',
 	repeat:

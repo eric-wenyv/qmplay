@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
 import artwork from "../electron/artwork.cjs";
 import api from "../electron/api.cjs";
-export const defaultApiOrigin = "http://127.0.0.1:3200";
+import { ensureBackend } from "./backend.mjs";
+const backend = await ensureBackend();
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const port = Number(process.env.PORT || 4173);
@@ -51,6 +52,7 @@ const server = http.createServer(async (req, res) => {
 					? await artwork.fetchArtwork(url.searchParams.get("url"))
 					: await api.proxyApi(url.pathname.slice(4), url.search, {
 						method: req.method, headers: req.headers, body: requestBody,
+						connection: await backend.start(),
 					});
 			res.writeHead(response.status, {
 				"Content-Type":
@@ -69,7 +71,7 @@ const server = http.createServer(async (req, res) => {
 					.pipe(res);
 		} catch {
 			res.writeHead(502, { "Content-Type": "application/json" });
-			res.end(JSON.stringify({ error: "QQ Music API unavailable" }));
+			res.end(JSON.stringify({ error: { code: "API_UNAVAILABLE", message: "内置音乐服务暂时不可用，请重试" } }));
 		}
 		return;
 	}
@@ -109,9 +111,10 @@ const server = http.createServer(async (req, res) => {
 server.on("error", (error) => {
 	console.error(error.message);
 	process.exitCode = 1;
+	backend.stop();
 });
 server.listen(port, "127.0.0.1", () =>
 	console.log(`qqmui: http://127.0.0.1:${port}`),
 );
 for (const signal of ["SIGINT", "SIGTERM"])
-	process.on(signal, () => server.close());
+	process.once(signal, () => { server.closeAllConnections(); server.close(); backend.stop(); });

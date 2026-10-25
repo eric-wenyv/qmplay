@@ -17,15 +17,29 @@
 		"check": "node scripts/check.mjs",
 		"build": "node scripts/build.mjs",
 		"pack:dir": "pnpm build && electron-builder --dir",
-		"dist:linux": "pnpm build && electron-builder --linux",
-		"dist:mac": "pnpm build && electron-builder --mac",
-		"dist:win": "pnpm build && electron-builder --win",
+		"dist:linux": "node scripts/build-linux.mjs",
 		"dev:ui": "node scripts/serve.mjs",
-		"test:integration": "node scripts/test-integration.mjs"
+		"test:integration": "node scripts/test-integration.mjs",
+		"build:backend": "node scripts/build-backend.mjs",
+		"build:linux": "node scripts/build-linux.mjs"
 	},
 	"devDependencies": {
 		"electron": "45.0.0",
-		"electron-builder": "26.18.0"
+		"electron-builder": "26.18.0",
+		"@jixun/qmweb-sign": "2.0.3",
+		"axios": "1.13.6",
+		"koa": "2.16.4",
+		"koa-bodyparser": "4.3.0",
+		"koa-router": "7.4.0",
+		"lodash.get": "4.4.2",
+		"zod": "4.3.6",
+		"esbuild": "0.28.2",
+		"typescript": "^5.9.3",
+		"@types/koa": "^3.0.2",
+		"@types/koa-router": "^7.4.9",
+		"@types/koa-bodyparser": "^4.3.13",
+		"@types/node": "^25.5.0",
+		"@types/lodash.get": "^4.4.9"
 	},
 	"build": {
 		"appId": "app.qqmui",
@@ -36,31 +50,42 @@
 		"files": [
 			"dist/**/*",
 			"electron/**/*",
-			"package.json"
+			"package.json",
+			"THIRD_PARTY_NOTICES.md",
+			"licenses/**/*"
 		],
 		"linux": {
 			"target": [
-				"AppImage",
-				"deb"
+				"deb",
+				"rpm",
+				"AppImage"
 			],
 			"category": "Audio",
 			"icon": "assets/icon.png",
-			"maintainer": "qqmui"
-		},
-		"mac": {
-			"target": [
-				"dmg"
-			],
-			"category": "public.app-category.music"
-		},
-		"win": {
-			"target": [
-				"nsis"
-			]
+			"maintainer": "qqmui",
+			"artifactName": "${name}-${version}-${arch}.${ext}",
+			"synopsis": "Minimal QQ Music player for Linux",
+			"desktop": {
+				"entry": {
+					"Name": "qqmui",
+					"Comment": "QQ Music player",
+					"Categories": "AudioVideo;Audio;Player;"
+				}
+			},
+			"syncDesktopName": true
 		}
 	},
 	"config": {
 		"electron_mirror": "https://npmmirror.com/mirrors/electron/",
 		"electron_builder_binaries_mirror": "https://npmmirror.com/mirrors/electron-builder-binaries/"
-	}
+	},
+	"homepage": "https://github.com/eric-wenyv/qmui",
+	"repository": {
+		"type": "git",
+		"url": "git+ssh://git@github.com/eric-wenyv/qmui.git"
+	},
+	"bugs": {
+		"url": "https://github.com/eric-wenyv/qmui/issues"
+	},
+	"desktopName": "qqmui.desktop"
 }

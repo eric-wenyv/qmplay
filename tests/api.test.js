@@ -260,7 +260,7 @@ test("network failures do not trigger lower-quality requests and cancellation st
 			return { ok: false, status: 502 };
 		},
 	});
-	await assert.rejects(api.getPlayback({ id: "mid-a" }), /无法连接本地/);
+	await assert.rejects(api.getPlayback({ id: "mid-a" }), /无法连接/);
 	assert.equal(calls, 1);
 	calls = 0;
 	const controller = new AbortController();

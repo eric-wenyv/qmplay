@@ -1,5 +1,6 @@
 import { cp, mkdir, rm, access } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { buildBackend } from "./build-backend.mjs";
 
 const root = new URL("../", import.meta.url);
 for (const filename of ["assets/coast.jpg", "assets/icon.png"])
@@ -10,4 +11,5 @@ for (const name of ["index.html", "src", "assets"])
 	await cp(new URL(name, root), new URL(`dist/${name}`, root), {
 		recursive: true,
 	});
+await buildBackend();
 console.log(`Built ${fileURLToPath(new URL("dist/", root))}`);

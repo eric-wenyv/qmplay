@@ -24,7 +24,7 @@
 	--topbar-height: calc(var(--mode-size) + var(--topbar-inset));
 }
 .auth-gated .player > :not(.topbar):not(.auth-view) { display: none !important; }
-.auth-gated .mode-control, .auth-gated .volume-control { visibility: hidden; }
+.auth-gated .mode-control { visibility: hidden; }
 .auth-view { min-height: 430px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }
 .auth-view h1 { font-size: 28px; font-weight: 500; margin: 0 0 8px; }
 .auth-caption, #auth-message { color: var(--muted); font-size: 14px; line-height: 1.6; }
@@ -188,14 +188,6 @@ svg {
 	transform: translateY(var(--mode-selected-offset, 0px));
 	pointer-events: none;
 }
-.topbar-right {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-}
-.volume-control {
-	position: relative;
-}
 .icon-button {
 	position: relative;
 	width: 42px;
@@ -226,41 +218,22 @@ svg {
 	width: 18px;
 	height: 18px;
 }
-.volume-control > .icon-button.small {
-	width: var(--mode-size);
-	height: var(--mode-size);
-}
-.volume-control > .icon-button.small .icon-slot {
-	width: 22px;
-	height: 22px;
-}
 .window-controls {
 	display: flex;
-	gap: 1px;
+	align-items: center;
+	margin-left: auto;
+	gap: 4px;
+	-webkit-app-region: no-drag;
 }
-.window-controls .icon-button.small {
-	width: 28px;
-	height: 28px;
+.window-controls .icon-button {
+	width: var(--mode-size);
+	height: var(--mode-size);
 	aspect-ratio: 1;
 	border-radius: 50%;
-}
-.window-controls .icon-button.small .icon-slot {
-	width: 14px;
-	height: 14px;
 }
 .window-controls #close-window:hover {
 	background: #ffffff20;
 	color: #ffffff;
-}
-.popover {
-	position: absolute;
-	z-index: 10;
-	background: var(--cover-base);
-	border: 1px solid var(--line);
-	border-radius: 14px;
-	box-shadow:
-		0 12px 36px -10px #00000055,
-		0 2px 5px #00000014;
 }
 .mode-menu {
 	position: absolute;
@@ -327,34 +300,6 @@ svg {
 }
 .mode-toggle .mode-dot {
 	opacity: 1;
-}
-.volume-popover {
-	right: 0;
-	top: 43px;
-	width: 208px;
-	padding: 11px;
-	display: flex;
-	gap: 7px;
-	align-items: center;
-}
-.volume-popover .icon-button {
-	width: 26px;
-	height: 26px;
-}
-.volume-popover .icon-slot {
-	width: 16px;
-	height: 16px;
-}
-.volume-popover input {
-	width: 100%;
-	accent-color: #ffffff;
-	height: 3px;
-}
-.volume-popover output {
-	min-width: 21px;
-	font-size: 10px;
-	color: var(--muted);
-	font-variant-numeric: tabular-nums;
 }
 .main-stage {
 	flex: 1;
@@ -1042,16 +987,19 @@ h1 {
 .transport .side-control::after {
 	font-size: 9px;
 }
+html.desktop,
+body.desktop {
+	background: transparent;
+}
 body.desktop {
 	padding: 0;
-	background: var(--cover-bottom);
 }
 .desktop .player {
 	width: 100vw;
 	height: 100dvh;
 	aspect-ratio: auto;
 	border: 0;
-	border-radius: 0;
+	border-radius: var(--corner-radius);
 	box-shadow: none;
 }
 .desktop .listening-view {
@@ -1059,9 +1007,6 @@ body.desktop {
 }
 .desktop .timeline {
 	max-width: min(348px, calc(100dvh - 228px));
-}
-.desktop .topbar-right {
-	gap: 7px;
 }
 .desktop .search-view {
 	padding-top: 25px;
@@ -1211,10 +1156,6 @@ body.desktop {
 	}
 }
 /* Live data and lyrics retain the original compact shell. */
-.topbar-right {
-	margin-left: auto;
-	gap: 2px;
-}
 .small .icon-slot {
 	width: 18px;
 	height: 18px;
@@ -1359,16 +1300,6 @@ body.desktop {
 .empty-view p {
 	line-height: 1.9;
 }
-@media (max-width: 420px) {
-	.topbar-right {
-		gap: 0;
-	}
-	.topbar-right .icon-button {
-		width: 28px;
-		height: 28px;
-	}
-}
-
 .queue-message {
 	margin: 0;
 	padding: 0 24px;

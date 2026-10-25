@@ -40,14 +40,14 @@ test("persists full liked records, queue and selected song without signed playba
 test("corrupt or unavailable storage never prevents launching; legacy demo ids are not imported", () => {
 	const storage = memory();
 	storage.value = "broken";
-	assert.equal(readLibrary(storage).volume, 65);
+	assert.deepEqual(readLibrary(storage).queue, []);
 	storage.value = JSON.stringify({
 		liked: [null, {}, "travel"],
 		queue: [],
 		volume: 999,
 	});
 	assert.deepEqual(readLibrary(storage).liked, []);
-	assert.equal(readLibrary(storage).volume, 100);
+	assert.equal("volume" in readLibrary(storage), false);
 	assert.equal(
 		writeLibrary(
 			{ liked: [], queue: [] },
@@ -61,7 +61,7 @@ test("corrupt or unavailable storage never prevents launching; legacy demo ids a
 	);
 });
 
-test("legacy server and quality settings are ignored and removed on save without losing the library", () => {
+test("legacy server, quality and volume settings are ignored and removed on save without losing the library", () => {
 	const storage = memory();
 	const song = { id: "favorite", title: "喜欢的歌" };
 	storage.value = JSON.stringify({
@@ -69,19 +69,20 @@ test("legacy server and quality settings are ignored and removed on save without
 		queue: [song],
 		baseUrl: "https://old-server.example",
 		quality: "128",
-		volume: 42,
+		volume: 0,
 	});
 	const restored = readLibrary(storage);
 	assert.equal("baseUrl" in restored, false);
 	assert.equal("quality" in restored, false);
 	assert.equal(restored.liked[0].id, "favorite");
-	assert.equal(restored.volume, 42);
+	assert.equal("volume" in restored, false);
 	writeLibrary(
-		{ ...restored, baseUrl: "https://old-server.example", quality: "128" },
+		{ ...restored, baseUrl: "https://old-server.example", quality: "128", volume: 0 },
 		storage,
 	);
 	const saved = JSON.parse(storage.value);
 	assert.equal("baseUrl" in saved, false);
 	assert.equal("quality" in saved, false);
+	assert.equal("volume" in saved, false);
 	assert.equal(saved.queue[0].id, "favorite");
 });
