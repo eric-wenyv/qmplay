@@ -541,6 +541,13 @@ async function showRadio() {
 async function switchSource(nextMode, resource, { autoplay = true } = {}) {
 	const version = ++sourceVersion;
 	closeModeMenu();
+	if (nextMode === "liked" && mode === "liked" && session.current) {
+		sourceLoading = false;
+		sourceRetry = null;
+		setView("player");
+		$("#play-toggle").focus();
+		return;
+	}
 	sourceLoading = true;
 	updateViews();
 	sourceRetry = () => switchSource(nextMode, resource, { autoplay });
