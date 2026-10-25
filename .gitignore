@@ -12,10 +12,11 @@ coverage/
 *.log
 *.tsbuildinfo
 
-# Local project documentation (keep third-party and license notices)
+# Local project documentation (keep the root README and license notices)
 README.md
 proton.md
 /docs/
+!/README.md
 !licenses/**/README.md
 
 # OS files
