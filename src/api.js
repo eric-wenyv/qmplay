@@ -95,6 +95,25 @@ export function normalizeArtist(singer) {
 			`https://y.gtimg.cn/music/photo_new/T001R150x150M000${encodeURIComponent(id)}.jpg`,
 	};
 }
+export function normalizeAlbum(album) {
+	const id = album?.albumMid || album?.album_mid || album?.mid;
+	if (!id) return null;
+	return {
+		id: String(id),
+		name: String(album.albumName || album.album_name || album.name || ""),
+		publishDate: String(album.publishDate || album.pub_time || ""),
+		coverUrl: `https://y.gtimg.cn/music/photo_new/T002R500x500M000${encodeURIComponent(id)}.jpg`,
+	};
+}
+function catalogPage(list, total, page, limit, normalize) {
+	if (!Array.isArray(list)) throw new Error("音乐列表数据不完整，请重试");
+	const count = Number(total);
+	return {
+		items: [...new Map(list.map(normalize).filter(Boolean).map((item) => [item.id, item])).values()],
+		hasMore: list.length > 0 && (total != null && Number.isSafeInteger(count) && count >= 0
+			? (page - 1) * limit + list.length < count : list.length >= limit),
+	};
+}
 export function normalizeBaseUrl(value) {
 	if (!String(value || "").trim()) return "";
 	const url = new URL(String(value).trim());
@@ -218,14 +237,13 @@ export class QQMusicProvider {
 	}
 	async searchArtists(query, options) {
 		const term = query.trim();
+		if (!term) return [];
 		const body = await this.request(
-			term ? "/getSmartbox" : "/getSingerList",
-			term ? { key: term } : { page: 1 },
+			"/getSmartbox",
+			{ key: term },
 			options,
 		);
-		const list = term
-			? body.data?.singer?.itemlist
-			: body.singerList?.data?.singerlist;
+		const list = body.data?.singer?.itemlist;
 		return (list || []).map(normalizeArtist).filter(Boolean);
 	}
 	async getFollowerCount(id, options) {
@@ -240,14 +258,33 @@ export class QQMusicProvider {
 		if (count !== null) this.followerCache.set(id, count);
 		return count;
 	}
-	async getArtistTracks(id, page = 1) {
+	async getArtistTrackPage(id, page = 1, options) {
 		const body = await this.request("/getSingerHotsong", {
 			singermid: id,
 			limit: 50,
 			page,
-		});
+		}, options);
 		if (body.singer?.code) throw new Error("暂时无法获取这位歌手的歌曲");
-		return normalizeTracks(body.singer?.data?.songlist);
+		const data = body.singer?.data;
+		const result = catalogPage(data?.songlist, data?.total_song, page, 50, normalizeTrack);
+		return { tracks: result.items, hasMore: result.hasMore };
+	}
+	async getArtistTracks(id, page = 1, options) {
+		return (await this.getArtistTrackPage(id, page, options)).tracks;
+	}
+	async getArtistAlbums(id, page = 1, options) {
+		const body = await this.request("/getSingerAlbum", { singermid: id, page, limit: 20 }, options);
+		if (body.singer?.code) throw new Error("暂时无法获取这位歌手的专辑");
+		const data = body.singer?.data;
+		const result = catalogPage(data?.albumList, data?.total, page, 20, normalizeAlbum);
+		return { albums: result.items, hasMore: result.hasMore };
+	}
+	async getAlbumTrackPage(id, page = 1, options) {
+		const body = await this.request("/getAlbumTracks", { albummid: id, page, limit: 50 }, options);
+		if (body.album?.code) throw new Error("暂时无法获取这张专辑的歌曲");
+		const data = body.album?.data;
+		const result = catalogPage(data?.songList, data?.totalNum, page, 50, normalizeTrack);
+		return { tracks: result.items, hasMore: result.hasMore };
 	}
 	async getRadioStations() {
 		const body = await this.request("/getRadioLists");

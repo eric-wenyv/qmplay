@@ -16,6 +16,13 @@ const artists = await provider.searchArtists("周杰伦");
 assert(artists.some((artist) => artist.name === "周杰伦"));
 const singerTracks = await provider.getArtistTracks(artists[0].id);
 assert(singerTracks.length > 0);
+const albums = await provider.getArtistAlbums(artists[0].id);
+assert(albums.albums.length > 0);
+const albumSongs = await provider.getAlbumTrackPage(albums.albums[0].id);
+assert(albumSongs.tracks.length > 0);
+const singerNextPage = await provider.getArtistTrackPage(artists[0].id, 2);
+assert(singerNextPage.tracks.length > 0);
+assert(!singerTracks.some((track) => track.id === singerNextPage.tracks[0].id));
 const stations = await provider.getRadioStations();
 assert(stations.length > 0);
 const batch = await provider.getRadioTracks("199");
@@ -25,7 +32,7 @@ assert(songs.length > 0);
 const lines = await provider.getLyrics(songs[0].id);
 assert(Array.isArray(lines));
 console.log(
-	`Live API: ${artists.length} artists, ${singerTracks.length} artist songs, ${stations.length} stations, ${batch.length} radio songs, ${songs.length} recommendations, ${lines.length} lyric lines.`,
+	`Live API: ${artists.length} artists, ${singerTracks.length} artist songs, ${albums.albums.length} albums, ${albumSongs.tracks.length} album songs, ${stations.length} stations, ${batch.length} radio songs, ${songs.length} recommendations, ${lines.length} lyric lines.`,
 );
 // Rights vary; try a bounded set of current recommendations and verify actual media bytes.
 let playable = false;

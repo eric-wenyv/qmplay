@@ -96,3 +96,10 @@ test('API proxy rejects absent or remote backend configuration and excludes read
     connection: { origin: 'http://127.0.0.1:43210', token: 'a'.repeat(64) },
   })).status, 400);
 });
+
+test('the desktop proxy permits the new read-only album interfaces', () => {
+  for (const pathname of ['/getSingerAlbum', '/getAlbumTracks']) {
+    assert.equal(proxy.allowedApiRequest(pathname, 'GET'), true);
+    assert.equal(proxy.allowedApiRequest(pathname, 'POST'), false);
+  }
+});

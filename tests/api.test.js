@@ -37,40 +37,16 @@ test("normalizes both legacy and current song formats; rejects unusable records 
 	assert.equal(normalizeTrack({ name: "no mid" }), null);
 	assert.equal(normalizeTracks([track, { musicData: track }, {}]).length, 1);
 });
-test("artist searches use the verified smartbox singer results; blank queries load real popular singers", async () => {
+test("artist searches use smartbox and blank queries never fetch popular singers", async () => {
 	const urls = [];
-	const api = new QQMusicProvider({
-		fetcher: async (url) => {
-			urls.push(url);
-			return reply(
-				url.includes("Smartbox")
-					? {
-							response: {
-								code: 0,
-								data: {
-									singer: { itemlist: [{ mid: "jay", name: "周杰伦" }] },
-								},
-							},
-						}
-					: {
-							response: {
-								code: 0,
-								singerList: {
-									data: {
-										singerlist: [
-											{ singer_mid: "eason", singer_name: "陈奕迅" },
-										],
-									},
-								},
-							},
-						},
-			);
-		},
-	});
+	const api = new QQMusicProvider({ fetcher: async (url) => {
+		urls.push(url);
+		return reply({ response: { code: 0, data: { singer: { itemlist: [{ mid: "jay", name: "周杰伦" }] } } } });
+	} });
 	assert.equal((await api.searchArtists(" 周杰伦 "))[0].id, "jay");
-	assert.equal((await api.searchArtists(""))[0].name, "陈奕迅");
+	assert.deepEqual(await api.searchArtists("  "), []);
+	assert.equal(urls.length, 1);
 	assert.match(urls[0], /getSmartbox\?key=/);
-	assert.match(urls[1], /getSingerList/);
 });
 test("radio catalogue, batch and singer songs map the actual upstream envelopes", async () => {
 	const api = new QQMusicProvider({
@@ -274,4 +250,32 @@ test("network failures do not trigger lower-quality requests and cancellation st
 		{ name: "AbortError" },
 	);
 	assert.equal(calls, 1);
+});
+
+test("artist and album catalogues expose actual paging totals and normalize album songInfo wrappers", async () => {
+	const urls = [];
+	const api = new QQMusicProvider({ fetcher: async (url) => {
+		urls.push(url);
+		return reply({ response: url.includes("getSingerAlbum")
+			? { singer: { code: 0, data: { albumList: [{ albumMid: "album", albumName: "Jay", publishDate: "2000-11-07" }], total: 21 } } }
+			: url.includes("getAlbumTracks")
+				? { album: { code: 0, data: { songList: [{ songInfo: track }], totalNum: 51 } } }
+				: { singer: { code: 0, data: { songlist: [track], total_song: 1001 } } } });
+	} });
+	const albums = await api.getArtistAlbums("jay", 2);
+	assert.equal(albums.albums[0].name, "Jay");
+	assert.equal(albums.albums[0].publishDate, "2000-11-07");
+	assert.equal(albums.hasMore, false);
+	assert.match(urls[0], /page=2&limit=20/);
+	const album = await api.getAlbumTrackPage("album", 2);
+	assert.equal(album.tracks[0].id, "mid-a");
+	assert.equal(album.hasMore, false);
+	assert.match(urls[1], /getAlbumTracks/);
+	assert.equal((await api.getArtistTrackPage("jay", 20)).hasMore, true);
+	assert.equal((await api.getArtistTrackPage("jay", 21)).hasMore, false);
+	api.fetcher = async () => reply({ response: { singer: { code: 0, data: {} } } });
+	await assert.rejects(api.getArtistTrackPage("jay"), /数据不完整/);
+	await assert.rejects(api.getArtistAlbums("jay"), /数据不完整/);
+	api.fetcher = async () => reply({ response: { album: { code: 1 } } });
+	await assert.rejects(api.getAlbumTrackPage("album"), /专辑/);
 });

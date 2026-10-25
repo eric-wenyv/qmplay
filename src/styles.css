@@ -160,7 +160,7 @@ svg {
 		box-shadow 0.28s;
 }
 .mode-control[data-open="true"]::before {
-	height: calc(3 * var(--mode-size) + 4 * var(--mode-padding));
+	height: calc(4 * var(--mode-size) + 5 * var(--mode-padding));
 	opacity: 1;
 	box-shadow: 0 10px 24px -8px #00000055;
 }
@@ -888,6 +888,9 @@ h1 {
 	font-size: 11px;
 	color: #ffffffb8;
 	margin-top: 6px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 .queue-time {
 	font-size: 10px;
@@ -1176,6 +1179,15 @@ body.desktop {
 	white-space: nowrap;
 	text-overflow: ellipsis;
 }
+.artist-summary h2 {
+	flex: 1;
+	min-width: 0;
+	font-size: 16px;
+}
+.artist-summary .artist-avatar {
+	width: 36px;
+	height: 36px;
+}
 #album-art {
 	cursor: pointer;
 }
@@ -1255,7 +1267,8 @@ body.desktop {
 }
 .lyric-line {
 	display: block;
-	width: 100%;
+	width: fit-content;
+	max-width: 100%;
 	text-align: left;
 	color: #ffffff80;
 	font-size: 16px;
@@ -1289,6 +1302,7 @@ body.desktop {
 .queue-item {
 	display: flex;
 	align-items: center;
+	height: 70px;
 }
 .queue-item .queue-row {
 	flex: 1;

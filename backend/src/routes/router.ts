@@ -10,6 +10,7 @@ import getRecommend from '../controllers/getRecommend';
 import getMusicPlay from '../controllers/getMusicPlay';
 import getLyric from '../controllers/getLyric';
 import getSongInfo from '../controllers/getSongInfo';
+import { singerAlbums, albumTracks } from '../controllers/catalog';
 import {
   authStatus, loginQr, loginQrCheck, logout,
   listFavorites, updateFavorite, accountMusicPlay,
@@ -20,6 +21,7 @@ export const API_PATHS = [
   '/getHotkey', '/getSmartbox', '/getSingerList', '/getSingerHotsong',
   '/getSingerStarNum', '/getRadioLists', '/getRadioTracks', '/getRecommend',
   '/getMusicPlay', '/getLyric', '/getSongInfo', '/auth/status', '/auth/qr',
+  '/getSingerAlbum', '/getAlbumTracks',
   '/auth/qr/check', '/auth/logout', '/user/favorites',
 ] as const;
 
@@ -29,6 +31,8 @@ export function createRouter() {
   router.get('/getSmartbox', getSmartbox);
   router.get('/getSingerList', getSingerList);
   router.get('/getSingerHotsong', getSingerHotsong);
+  router.get('/getSingerAlbum', singerAlbums);
+  router.get('/getAlbumTracks', albumTracks);
   router.get('/getSingerStarNum', getSingerStarNum);
   router.get('/getRadioLists', getRadioLists);
   router.get('/getRadioTracks', getRadioTracks);

@@ -13,6 +13,7 @@ export function formatTime(seconds) {
 export class PlayerSession {
 	constructor(random = Math.random) {
 		this.queue = [];
+		this.source = null;
 		this.index = 0;
 		this.elapsed = 0;
 		this.playing = false;
@@ -25,8 +26,12 @@ export class PlayerSession {
 		return this.queue[this.index] || null;
 	}
 
-	setQueue(queue, { autoplay = true, trackId } = {}) {
+	setQueue(queue, { autoplay = true, trackId, source = null } = {}) {
 		this.queue = [...queue];
+		this.source = source && {
+			...source,
+			...(source.resource && { resource: { ...source.resource } }),
+		};
 		this.index = Math.max(
 			0,
 			this.queue.findIndex((track) => track.id === trackId),

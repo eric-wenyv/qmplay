@@ -109,6 +109,29 @@ test('current recommendation, radio, search and lyric contracts work without unu
   });
 });
 
+test('artist albums and album songs use offset pagination, and artist songs can pass the first thousand', async () => {
+  const calls = [];
+  axios.defaults.adapter = async (config) => {
+    const payload = JSON.parse(config.params.data);
+    calls.push(payload);
+    if (payload.album) return upstream(config, { code: 0, album: { code: 0, data: { songList: [{ songInfo: { mid: 'album-song' } }], totalNum: 51 } } });
+    return upstream(config, { code: 0, singer: { code: 0, data: payload.singer.method === 'GetAlbumList'
+      ? { albumList: [{ albumMid: 'album' }], total: 21 }
+      : { songlist: [{ mid: 'song1001' }], total_song: 1001 } } });
+  };
+  await localApi(async (request) => {
+    assert.equal((await (await request('/getSingerAlbum?singermid=singer&page=2&limit=20')).json()).response.singer.data.albumList[0].albumMid, 'album');
+    assert.deepEqual(calls[0].singer.param, { singermid: 'singer', sort: 5, begin: 20, num: 20 });
+    assert.equal((await (await request('/getAlbumTracks?albummid=album&page=2&limit=50')).json()).response.album.data.songList[0].songInfo.mid, 'album-song');
+    assert.deepEqual(calls[1].album.param, { albumMid: 'album', begin: 50, num: 50, order: 2 });
+    assert.equal((await (await request('/getSingerHotsong?singermid=singer&page=21&limit=50')).json()).response.singer.data.songlist[0].mid, 'song1001');
+    assert.equal(calls[2].singer.param.sin, 1000);
+    for (const pathname of ['/getSingerAlbum', '/getAlbumTracks', '/getSingerHotsong?singermid=singer&page=0', '/getAlbumTracks?albummid=album&limit=100000', '/getSingerAlbum?singermid=singer&page=1.5'])
+      assert.equal((await request(pathname)).status, 400, pathname);
+    assert.equal(calls.length, 3);
+  });
+});
+
 test('upstream transport errors never serialize Axios credentials or signed URLs', async () => {
   axios.defaults.adapter = async (config) => {
     throw Object.assign(new Error('secret-ticket at https://example.com/?signed=private'), {

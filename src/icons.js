@@ -1,4 +1,5 @@
 const paths = {
+	home: '<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1V10Z"/>',
 	radio:
 		'<rect x="3" y="7" width="18" height="14" rx="3"/><path d="m6 7 11-4M7 12h.01M7 16h.01M12 12h5M12 16h5"/>',
 	heart:

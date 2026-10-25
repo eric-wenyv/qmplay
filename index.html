@@ -15,11 +15,12 @@
     <main class="player" aria-label="qqmui 音乐播放器">
       <header class="topbar">
         <div class="mode-control" data-open="false">
-          <button id="mode-toggle" class="mode-toggle" type="button" aria-label="切换音乐来源：推荐电台" aria-haspopup="menu" aria-expanded="false" aria-controls="mode-menu" data-tip="推荐电台">
+          <button id="mode-toggle" class="mode-toggle" type="button" aria-label="切换页面：主页" aria-haspopup="menu" aria-expanded="false" aria-controls="mode-menu" data-tip="主页">
             <span id="mode-icon" class="icon-slot"></span><span class="mode-dot" aria-hidden="true"></span>
           </button>
-          <div id="mode-menu" class="mode-menu" role="menu" aria-label="音乐来源" aria-hidden="true" inert>
-            <button class="mode-option" type="button" data-mode="radio" role="menuitemradio" aria-checked="true" aria-label="推荐电台" data-tip="推荐电台"><span class="icon-slot" data-icon="radio"></span><span class="mode-dot"></span></button>
+          <div id="mode-menu" class="mode-menu" role="menu" aria-label="页面导航" aria-hidden="true" inert>
+            <button class="mode-option" type="button" data-mode="home" role="menuitemradio" aria-checked="true" aria-label="主页" data-tip="主页"><span class="icon-slot" data-icon="home"></span><span class="mode-dot"></span></button>
+            <button class="mode-option" type="button" data-mode="radio" role="menuitemradio" aria-checked="false" aria-label="推荐电台" data-tip="推荐电台"><span class="icon-slot" data-icon="radio"></span><span class="mode-dot"></span></button>
             <button class="mode-option" type="button" data-mode="liked" role="menuitemradio" aria-checked="false" aria-label="喜欢的音乐" data-tip="喜欢的音乐"><span class="icon-slot" data-icon="heart"></span><span class="mode-dot"></span></button>
             <button class="mode-option" type="button" data-mode="artist" role="menuitemradio" aria-checked="false" aria-label="歌手电台" data-tip="歌手电台"><span class="icon-slot" data-icon="artist"></span><span class="mode-dot"></span></button>
           </div>
@@ -52,17 +53,25 @@
         </div>
 
         <section id="search-view" class="search-view" aria-label="搜索歌手" hidden>
-          <form id="artist-search" class="search-field" role="search"><span class="icon-slot" data-icon="search"></span><input id="search-input" type="search" placeholder="想听谁的歌？" aria-label="搜索歌手" autocomplete="off" spellcheck="false" /><button type="submit" class="icon-button small" aria-label="搜索"><span class="icon-slot" data-icon="arrowRight"></span></button><button id="close-search" class="icon-button small" type="button" aria-label="返回播放器" data-tip="返回"><span class="icon-slot" data-icon="close"></span></button></form>
+          <form id="artist-search" class="search-field" role="search"><span class="icon-slot" data-icon="search"></span><input id="search-input" type="search" placeholder="想听谁的歌？" aria-label="搜索歌手" autocomplete="off" spellcheck="false" /><button type="submit" class="icon-button small" aria-label="搜索"><span class="icon-slot" data-icon="arrowRight"></span></button></form>
           <div id="artist-results" class="artist-results" aria-label="歌手搜索结果"></div>
           <div id="search-empty" class="search-empty" hidden><span class="icon-slot" data-icon="search"></span><p>还没有找到这个声音</p></div>
         </section>
 
+        <section id="albums-view" class="search-view" aria-label="歌手专辑" hidden>
+          <div class="browse-heading artist-summary"><span class="artist-avatar"><img id="artist-summary-image" alt="" /></span><h2 id="artist-summary-name"></h2><button id="play-artist" class="text-button" type="button">播放全部 <span class="icon-slot" data-icon="play"></span></button></div>
+          <div id="album-results" class="artist-results" aria-label="歌手专辑"></div>
+        </section>
         <section id="browse-view" class="search-view" aria-label="选择电台" hidden>
-          <div class="browse-heading"><h2>听见此刻</h2><button id="close-browse" class="icon-button small" type="button" aria-label="返回播放器"><span class="icon-slot" data-icon="close"></span></button></div>
+          <div class="browse-heading"><h2>听见此刻</h2></div>
           <div id="radio-results" class="artist-results"></div>
         </section>
+        <section id="liked-view" class="search-view" aria-label="喜欢的音乐" hidden>
+          <div class="browse-heading"><h2>喜欢的音乐</h2><button id="play-liked" class="text-button" type="button">播放全部 <span class="icon-slot" data-icon="play"></span></button></div>
+          <div id="liked-results" class="artist-results" aria-label="收藏歌曲"></div>
+        </section>
         <section id="lyrics-view" class="search-view" aria-label="歌词" hidden>
-          <div class="browse-heading"><h2 id="lyrics-title">歌词</h2><button id="close-lyrics" class="icon-button small" type="button" aria-label="关闭歌词"><span class="icon-slot" data-icon="close"></span></button></div>
+          <div class="browse-heading"><h2 id="lyrics-title">歌词</h2></div>
           <div id="lyrics-lines" class="lyrics-lines"></div>
         </section>
         <section id="empty-view" class="empty-view" aria-label="暂无歌曲" hidden><span class="empty-heart icon-slot" data-icon="heart"></span><p id="empty-message">正在连接音乐服务…</p><button id="back-to-radio" class="text-button" type="button">去听电台 <span class="icon-slot" data-icon="arrowRight"></span></button></section>

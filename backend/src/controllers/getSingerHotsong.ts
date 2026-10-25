@@ -1,6 +1,7 @@
 import { Context } from 'koa';
 import services from '../services';
 import { getTypedQuery } from '../types/core/request';
+import { z } from 'zod';
 
 const { UCommon } = services;
 
@@ -14,9 +15,13 @@ interface SingerHotsongQuery {
 
 export default async (ctx: Context) => {
   const query = getTypedQuery<SingerHotsongQuery>(ctx);
-  const singermid = query.singermid;
-  const num = +(query.limit || 5);
-  const page = +(query.page || 0);
+  const parsed = z.object({
+    singermid: z.string().regex(/^[\w-]{1,100}$/),
+    limit: z.coerce.number().int().min(1).max(50).default(50),
+    page: z.coerce.number().int().min(1).max(100000).default(1),
+  }).safeParse(query);
+  if (!parsed.success) ctx.throw(400);
+  const { singermid, limit: num, page } = parsed.data;
   const data = {
     comm: {
       ct: 24,

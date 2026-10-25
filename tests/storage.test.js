@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readLibrary, writeLibrary } from "../src/storage.js";
+import { readLibrary, writeLibrary, rememberArtist } from "../src/storage.js";
 const memory = () => ({
 	value: null,
 	getItem() {
@@ -85,4 +85,54 @@ test("legacy server, quality and volume settings are ignored and removed on save
 	assert.equal("quality" in saved, false);
 	assert.equal("volume" in saved, false);
 	assert.equal(saved.queue[0].id, "favorite");
+});
+
+test("queue source and artist pagination round-trip independently of legacy navigation settings", () => {
+	const storage = memory();
+	const queueSource = { type: "artist", resource: { id: "singer", name: "歌手" }, page: 4 };
+	writeLibrary({ liked: [], queue: [], queueSource, mode: "liked" }, storage);
+	assert.deepEqual(readLibrary(storage).queueSource, queueSource);
+	assert.equal(readLibrary(storage).hasQueue, true);
+	writeLibrary({ liked: [], queue: [], queueSource: null }, storage);
+	assert.equal(readLibrary(storage).queueSource, null);
+	assert.equal(readLibrary(storage).hasQueue, true);
+});
+
+test("legacy queue sources migrate with their saved songs, and invalid pagination is reset", () => {
+	const storage = memory();
+	storage.value = JSON.stringify({ mode: "artist", artist: { id: "singer" }, queue: [] });
+	assert.deepEqual(readLibrary(storage).queueSource, { type: "artist", resource: { id: "singer" }, page: 1 });
+	storage.value = JSON.stringify({ mode: "liked", queue: [] });
+	assert.deepEqual(readLibrary(storage).queueSource, { type: "liked" });
+	storage.value = JSON.stringify({ queueSource: { type: "artist", resource: { id: "singer" }, page: -3 } });
+	assert.equal(readLibrary(storage).queueSource.page, 1);
+	assert.equal(readLibrary(storage).hasQueue, false);
+});
+
+test("artist history retains the ten most recently visited distinct artists across restarts", () => {
+	let history = [];
+	for (let i = 0; i < 12; i++) history = rememberArtist(history, { id: `artist${i}`, name: `歌手${i}`, avatarUrl: "https://y.gtimg.cn/a.jpg" });
+	history = rememberArtist(history, { id: "artist5", name: "更新的名字", followerCount: 500 });
+	const storage = memory();
+	writeLibrary({ liked: [], queue: [], artistHistory: history }, storage);
+	const restored = readLibrary(storage).artistHistory;
+	assert.equal(restored.length, 10);
+	assert.deepEqual(restored.map((artist) => artist.id), ["artist5", "artist11", "artist10", "artist9", "artist8", "artist7", "artist6", "artist4", "artist3", "artist2"]);
+	assert.equal(restored[0].name, "更新的名字");
+	assert.equal(restored[0].followerCount, 500);
+	storage.value = JSON.stringify({ artistHistory: [null, {}, { id: "bad/id", name: "bad" }] });
+	assert.deepEqual(readLibrary(storage).artistHistory, []);
+});
+
+test("long artist and album queues retain their current song, last page and completion on restart", () => {
+	const storage = memory();
+	const queue = Array.from({ length: 1205 }, (_, index) => ({ id: `song${index}`, title: `歌曲${index}` }));
+	for (const type of ["artist", "album"]) {
+		const queueSource = { type, resource: { id: "mid", name: "name" }, page: 25, hasMore: false };
+		writeLibrary({ liked: [], queue, currentId: "song1204", queueSource }, storage);
+		const restored = readLibrary(storage);
+		assert.equal(restored.queue.length, 1205);
+		assert.equal(restored.queue.at(-1).id, restored.currentId);
+		assert.deepEqual(restored.queueSource, queueSource);
+	}
 });

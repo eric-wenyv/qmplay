@@ -5,6 +5,7 @@ const API_ORIGIN = 'http://127.0.0.1:3200';
 const GET_PATHS = new Set([
   '/getHotkey', '/getSingerList', '/getSingerStarNum', '/getSmartbox',
   '/getSingerHotsong', '/getRadioLists', '/getRadioTracks', '/getRecommend',
+  '/getSingerAlbum', '/getAlbumTracks',
   '/getMusicPlay', '/getLyric', '/getSongInfo', '/auth/status', '/user/favorites',
 ]);
 const POST_PATHS = new Set(['/auth/qr', '/auth/qr/check', '/auth/logout', '/user/favorites']);
