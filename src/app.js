@@ -48,6 +48,13 @@ let albumCatalog = null;
 let recentArtists = preferences.artistHistory || [];
 let advanceVersion = 0;
 let queueWindow = "";
+const mobileLayout = window.matchMedia("(max-width: 560px), (pointer: coarse) and (max-width: 1024px)");
+let swipeStart = null;
+let suppressClickUntil = 0;
+let mobilePage = null;
+let mobileMode = ({ liked: "liked", artist: "artist", album: "artist" })[preferences.queueSource?.type] || "radio";
+let radioVersion = 0;
+const pageModes = { search: "artist", albums: "artist", browse: "radio", liked: "liked", queue: "queue" };
 const artworkThemes = new Map();
 let themedArtwork = null;
 const modeLabels = {
@@ -56,8 +63,9 @@ const modeLabels = {
 	liked: "喜欢的音乐",
 	artist: "歌手电台",
 	album: "歌手电台",
+	queue: "播放队列",
 };
-const modeIcons = { home: "home", radio: "radio", liked: "heart", artist: "artist", album: "artist" };
+const modeIcons = { home: "home", radio: "radio", liked: "heart", artist: "artist", album: "artist", queue: "queue" };
 
 function escapeHtml(value) {
 	return String(value ?? "").replace(
@@ -191,8 +199,7 @@ function updateLikeState() {
 function updateMode() {
 	const source = session.source;
 	const mode = source?.type || "radio";
-	const visibleMode =
-		({ search: "artist", albums: "artist", browse: "radio", liked: "liked" })[view] || "home";
+	const visibleMode = isMobileLayout() ? mobileMode : pageModes[view] || "home";
 	$("#mode-icon").innerHTML = icon(modeIcons[visibleMode]);
 	$("#mode-toggle").setAttribute(
 		"aria-label",
@@ -280,6 +287,10 @@ function updateViews() {
 	$("#liked-view").hidden = view !== "liked";
 	$("#lyrics-view").hidden = view !== "lyrics";
 	$("#empty-view").hidden = view !== "player" || !!session.current;
+	if (isMobileLayout()) {
+		$("#queue-panel").hidden = view !== "queue";
+		$("#queue-toggle").setAttribute("aria-expanded", String(view === "queue"));
+	}
 	$(".player").classList.toggle("is-searching", view !== "player");
 	$(".main-stage").setAttribute("aria-busy", String(sourceLoading));
 	$("#empty-message").textContent = sourceLoading
@@ -386,19 +397,30 @@ async function loadCurrent({ autoplay = false, elapsed = 0 } = {}) {
 	if (autoplay) prefetchTracks();
 }
 function setView(next) {
-	if (view === "search" && next !== "search") {
+	swipeStart = null;
+	const mobile = isMobileLayout();
+	const previous = mobile && view === "player" ? mobilePage : view;
+	// Returning to the mobile player suspends the page, keeping its data and requests.
+	const suspend = mobile && next === "player";
+	if (previous === "search" && next !== "search" && !suspend) {
 		searchVersion++;
 		searchAbort?.abort();
 		followerObserver?.disconnect();
 		clearTimeout(searchTimer);
 	}
-	if (view === "albums" && next !== "albums") albumCatalog?.controller.abort();
+	if (previous === "albums" && next !== "albums" && !suspend) albumCatalog?.controller.abort();
+	if (previous === "browse" && next !== "browse" && !suspend) radioVersion++;
+	if (mobile && next !== "player") {
+		mobilePage = next;
+		mobileMode = pageModes[next] || mobileMode;
+	}
 	view = next;
 	updateMode();
 	updateViews();
 }
 function positionModeSelection() {
 	const selected = $('.mode-option[aria-checked="true"]');
+	$(".mode-control").dataset.selection = String(!!selected);
 	if (!selected) return;
 	const offset =
 		selected.offsetTop +
@@ -425,6 +447,12 @@ function setModeMenu(open) {
 	$(".mode-control").dataset.open = String(open);
 	$("#mode-menu").inert = !open;
 	$("#mode-menu").setAttribute("aria-hidden", String(!open));
+	const modal = isMobileLayout() && open;
+	$("#mode-backdrop").hidden = !modal;
+	$(".player").classList.toggle("is-menu-open", modal);
+	if (isMobileLayout())
+		for (const selector of [".main-stage", ".player-footer", "#notice"])
+			$(selector).inert = modal;
 	const toggle = $("#mode-toggle");
 	toggle.setAttribute("aria-expanded", String(open));
 	// Menu rows own focus while the same visual button continues moving.
@@ -467,7 +495,7 @@ function showSearch() {
 	setView("search");
 	$("#search-input").value = "";
 	void renderArtists("");
-	$("#search-input").focus();
+	(isMobileLayout() ? $("#mode-toggle") : $("#search-input")).focus();
 }
 async function renderArtists(query) {
 	const version = ++searchVersion;
@@ -487,12 +515,12 @@ async function renderArtists(query) {
 		const results = await provider.searchArtists(query, {
 			signal: searchAbort.signal,
 		});
-		if (version !== searchVersion || view !== "search") return;
+		if (version !== searchVersion || !isPageActive("search")) return;
 		$("#search-empty").hidden = !!results.length;
 		displayArtists(results, version);
 		announce(results.length ? `找到 ${results.length} 位歌手` : "没有找到歌手");
 	} catch (error) {
-		if (version !== searchVersion || view !== "search") return;
+		if (version !== searchVersion || !isPageActive("search")) return;
 		$("#artist-results").innerHTML =
 			'<p class="results-message">搜索暂时不可用</p>';
 		notify(error.message, () => renderArtists(query));
@@ -521,7 +549,7 @@ function displayArtists(results, version) {
 					.then((count) => {
 						if (
 							version !== searchVersion ||
-							view !== "search" ||
+							!isPageActive("search") ||
 							count === null
 						)
 							return;
@@ -557,12 +585,12 @@ async function showArtistAlbums(artist) {
 }
 async function loadMoreAlbums() {
 	const catalog = albumCatalog;
-	if (!catalog || view !== "albums" || catalog.pending || !catalog.hasMore) return;
+	if (!catalog || !isPageActive("albums") || catalog.pending || !catalog.hasMore) return;
 	catalog.pending = true;
 	$("#album-results").setAttribute("aria-busy", "true");
 	try {
 		const result = await provider.getArtistAlbums(catalog.artist.id, catalog.page + 1, { signal: catalog.controller.signal });
-		if (catalog !== albumCatalog || catalog.controller.signal.aborted || view !== "albums") return;
+		if (catalog !== albumCatalog || catalog.controller.signal.aborted || !isPageActive("albums")) return;
 		const known = new Set(catalog.albums.map((album) => album.id));
 		const added = result.albums.filter((album) => !known.has(album.id));
 		if (result.albums.length && !added.length && result.hasMore) throw new Error("专辑列表分页未前进，请重试");
@@ -583,7 +611,7 @@ async function showRadio() {
 	sourceLoading = false;
 	closeModeMenu();
 	setView("browse");
-	const version = sourceVersion;
+	const version = ++radioVersion;
 	$("#mode-toggle").focus();
 	$("#radio-results").innerHTML =
 		'<p class="results-message">正在连接电台…</p>';
@@ -592,7 +620,7 @@ async function showRadio() {
 			{ id: "new", name: "每日新歌", group: "推荐", coverUrl: "" },
 			...(await provider.getRadioStations()),
 		];
-		if (version !== sourceVersion || view !== "browse") return;
+		if (version !== radioVersion || !isPageActive("browse")) return;
 		$("#radio-results")._stations = stations;
 		$("#radio-results").innerHTML = stations
 			.map(
@@ -601,7 +629,7 @@ async function showRadio() {
 			)
 			.join("");
 	} catch (error) {
-		if (version !== sourceVersion || view !== "browse") return;
+		if (version !== radioVersion || !isPageActive("browse")) return;
 		$("#radio-results").innerHTML =
 			'<p class="results-message">电台暂时不可用</p>';
 		notify(error.message, showRadio);
@@ -756,10 +784,70 @@ function updateOrder() {
 	$("#queue-order-icon").innerHTML = icon(session.order);
 	$("#queue-order-label").textContent = orderLabels[session.order];
 }
+function isMobileLayout() {
+	return !window.interludeDesktop && mobileLayout.matches;
+}
+function isPageActive(page) {
+	return view === page || (isMobileLayout() && view === "player" && mobilePage === page);
+}
+function visibleModeOptions() {
+	return $$(".mode-option").filter((option) => !isMobileLayout() || option.dataset.mode !== "home");
+}
+function resumeMobilePage() {
+	if (!mobilePage) return;
+	setView(mobilePage);
+	if (view === "liked") renderLiked();
+	else if (view === "queue") renderQueue();
+	else if (view === "lyrics") void loadLyrics();
+	$("#mode-toggle").focus();
+}
+function syncQueueLayout() {
+	const panel = $("#queue-panel");
+	const mobile = isMobileLayout();
+	const wasOpen = !panel.hidden;
+	closeModeMenu();
+	for (const option of $$(".mode-option"))
+		if (option.dataset.mode === "home") option.hidden = mobile;
+	const parent = mobile ? $(".main-stage") : $(".player");
+	if (panel.parentElement !== parent) parent.append(panel);
+	panel.classList.toggle("search-view", mobile);
+	panel.setAttribute("role", mobile ? "region" : "dialog");
+	if (mobile) {
+		panel.removeAttribute("aria-modal");
+		panel.setAttribute("tabindex", "-1");
+		if (view !== "player") {
+			mobilePage = view;
+			mobileMode = pageModes[view] || mobileMode;
+		}
+	} else {
+		panel.setAttribute("aria-modal", "true");
+		panel.removeAttribute("tabindex");
+	}
+	$("#queue-backdrop").hidden = true;
+	for (const selector of [".topbar", ".main-stage", ".player-footer", "#notice"])
+		$(selector).inert = false;
+	if (wasOpen) {
+		if (mobile) {
+			setView("queue");
+			panel.focus({ preventScroll: true });
+		} else {
+			if (view === "queue") setView("player");
+			openQueue();
+		}
+	} else { updateMode(); updateViews(); }
+}
 function openQueue() {
+	if (isMobileLayout() && view === "queue") { closeQueue(); return; }
 	$("#queue-message").textContent = "";
 	closeModeMenu();
 	renderQueue();
+	if (isMobileLayout()) {
+		sourceVersion++;
+		sourceLoading = false;
+		setView("queue");
+		$("#queue-panel").focus({ preventScroll: true });
+		return;
+	}
 	$("#queue-panel").hidden = false;
 	$("#queue-backdrop").hidden = false;
 	$("#queue-toggle").setAttribute("aria-expanded", "true");
@@ -769,6 +857,7 @@ function openQueue() {
 	$("#close-queue").focus();
 }
 function closeQueue() {
+	if (view === "queue") returnToPlayer();
 	$("#queue-panel").hidden = true;
 	$("#queue-backdrop").hidden = true;
 	$("#queue-toggle").setAttribute("aria-expanded", "false");
@@ -862,11 +951,13 @@ function showLyrics() {
 $("#mode-toggle").addEventListener("click", () => {
 	const opening = !modeMenuOpen;
 	setModeMenu(opening);
-	if (opening) $('.mode-option[aria-checked="true"]').focus();
+	if (opening) ($('.mode-option[aria-checked="true"]') || visibleModeOptions()[0]).focus();
 });
+$("#mode-backdrop").addEventListener("click", () => closeModeMenu({ focus: true }));
 $("#mode-menu").addEventListener("click", (event) => {
 	const button = event.target.closest("[data-mode]");
 	if (!button) return;
+	if (button.dataset.mode === "home" && isMobileLayout()) return;
 	prepareModeSelection(button);
 	if (button.dataset.mode === "home") returnToPlayer();
 	else if (button.dataset.mode === "artist") showSearch();
@@ -876,7 +967,7 @@ $("#mode-menu").addEventListener("click", (event) => {
 $("#mode-menu").addEventListener("keydown", (event) => {
 	if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
 	event.preventDefault();
-	const buttons = $$(".mode-option");
+	const buttons = visibleModeOptions();
 	const index = buttons.indexOf(document.activeElement);
 	buttons[
 		event.key === "Home"
@@ -1020,7 +1111,7 @@ $("#clear-queue").addEventListener("click", () => {
 	session.setQueue([], { autoplay: false });
 	void loadCurrent();
 	renderQueue();
-	$("#close-queue").focus();
+	(isMobileLayout() ? $("#queue-panel") : $("#close-queue")).focus();
 });
 $("#load-more").addEventListener("click", () => void loadMore());
 $("#album-art").setAttribute("role", "button");
@@ -1050,6 +1141,43 @@ $(".player").addEventListener("click", (event) => {
 	returnToPlayer();
 });
 $("#dismiss-notice").addEventListener("click", dismissNotice);
+// Pointer hover can stick after a tap; retain focus only for keyboard activation.
+$(".click-wheel").addEventListener("click", (event) => {
+	if (!isMobileLayout()) return;
+	const button = event.target.closest("button");
+	if (event.detail > 0 && button === document.activeElement) button.blur();
+});
+const stage = $(".main-stage");
+stage.addEventListener("pointerdown", (event) => {
+	swipeStart = null;
+	if (!isMobileLayout() || !authReady || modeMenuOpen || (view === "player" && !mobilePage) || event.pointerType === "mouse" || !event.isPrimary ||
+		event.target.closest("input, textarea, select, [contenteditable]")) return;
+	swipeStart = { id: event.pointerId, x: event.clientX, y: event.clientY, view };
+});
+stage.addEventListener("pointermove", (event) => {
+	if (!swipeStart || swipeStart.id !== event.pointerId) return;
+	const dx = event.clientX - swipeStart.x, dy = Math.abs(event.clientY - swipeStart.y);
+	if (dy > 12 && dy >= Math.abs(dx)) swipeStart = null;
+});
+stage.addEventListener("pointercancel", () => { swipeStart = null; });
+stage.addEventListener("pointerup", (event) => {
+	const start = swipeStart;
+	swipeStart = null;
+	if (!isMobileLayout() || !start || start.id !== event.pointerId || start.view !== view || modeMenuOpen) return;
+	const dx = event.clientX - start.x, dy = Math.abs(event.clientY - start.y);
+	const returning = view !== "player" && dx >= 72;
+	const resuming = view === "player" && dx <= -72;
+	if ((!returning && !resuming) || Math.abs(dx) < dy * 2) return;
+	suppressClickUntil = Date.now() + 400;
+	event.preventDefault();
+	if (returning) returnToPlayer();
+	else resumeMobilePage();
+});
+stage.addEventListener("click", (event) => {
+	if (!isMobileLayout() || Date.now() >= suppressClickUntil) return;
+	event.preventDefault();
+	event.stopImmediatePropagation();
+}, true);
 for (const name of ["pointerdown", "focusin"])
 	document.addEventListener(name, (event) => {
 		if (!event.target.closest(".mode-control") && modeMenuOpen) closeModeMenu();
@@ -1058,11 +1186,12 @@ document.addEventListener("keydown", (event) => {
 	if (!authReady) return;
 	if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
 		event.preventDefault();
-		if ($("#queue-panel").hidden) showSearch();
+		if ($("#queue-panel").hidden && (!isMobileLayout() || !modeMenuOpen)) showSearch();
 		return;
 	}
 	if (event.key === "Escape") {
-		if (!$("#queue-panel").hidden) closeQueue();
+		if (isMobileLayout() && modeMenuOpen) closeModeMenu({ focus: true });
+		else if (!$("#queue-panel").hidden) closeQueue();
 		else if (modeMenuOpen) closeModeMenu({ focus: true });
 		else if (view !== "player") {
 			sourceVersion++;
@@ -1071,7 +1200,16 @@ document.addEventListener("keydown", (event) => {
 		}
 		return;
 	}
-	if (!$("#queue-panel").hidden) {
+	if (modeMenuOpen && isMobileLayout()) {
+		if (event.key === "Tab") {
+			event.preventDefault();
+			const buttons = visibleModeOptions();
+			const index = buttons.indexOf(document.activeElement);
+			buttons[(index + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length].focus();
+		}
+		return;
+	}
+	if (!$("#queue-panel").hidden && !isMobileLayout()) {
 		if (event.key === "Tab") {
 			const focusable = [
 				...$("#queue-panel").querySelectorAll("button:not(:disabled)"),
@@ -1136,8 +1274,8 @@ if (window.qqmuiAndroid) {
 		else if (event.detail === "next" || event.detail === "previous") void advance(event.detail);
 	});
 	window.addEventListener("qqmui-back", () => {
-		if (!$("#queue-panel").hidden) closeQueue();
-		else if (modeMenuOpen) setModeMenu(false);
+		if (modeMenuOpen) closeModeMenu({ focus: true });
+		else if (!$("#queue-panel").hidden) closeQueue();
 		else if (view !== "player") returnToPlayer();
 		else window.qqmuiAndroid.minimize();
 	});
@@ -1153,6 +1291,8 @@ if (window.interludeDesktop) {
 		window.interludeDesktop.close(),
 	);
 }
+mobileLayout.addEventListener("change", syncQueueLayout);
+syncQueueLayout();
 $("#cover-image").addEventListener("load", () => {
 	themedArtwork = null;
 	updateArtworkTheme();
