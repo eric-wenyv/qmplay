@@ -18,9 +18,10 @@
 	--line: #ffffff30;
 	--accent: #ffffff;
 	--corner-radius: 16px;
-	--topbar-height: 56px;
 	--mode-size: 44px;
 	--mode-padding: 4px;
+	--topbar-inset: 16px;
+	--topbar-height: calc(var(--mode-size) + var(--topbar-inset));
 }
 .auth-gated .player > :not(.topbar):not(.auth-view) { display: none !important; }
 .auth-gated .mode-control, .auth-gated .volume-control { visibility: hidden; }
@@ -127,8 +128,8 @@ svg {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	/* Equal top/left button insets put its center on the corner diagonal. */
-	padding: 0 calc((var(--topbar-height) - var(--mode-size)) / 2);
+	/* Equal button sizes and insets keep both corner controls symmetric. */
+	padding: var(--topbar-inset) var(--topbar-inset) 0;
 	position: relative;
 	z-index: 5;
 	-webkit-app-region: drag;
@@ -224,6 +225,14 @@ svg {
 .icon-button.small .icon-slot {
 	width: 18px;
 	height: 18px;
+}
+.volume-control > .icon-button.small {
+	width: var(--mode-size);
+	height: var(--mode-size);
+}
+.volume-control > .icon-button.small .icon-slot {
+	width: 22px;
+	height: 22px;
 }
 .window-controls {
 	display: flex;
