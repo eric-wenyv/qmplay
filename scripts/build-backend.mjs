@@ -64,16 +64,16 @@ async function bundledNotices(metafile, outdir) {
 	await writeFile(path.join(outdir, "dependencies.json"), JSON.stringify(inventory, null, 2) + "\n");
 }
 
-export async function buildBackend({ outdir = path.join(root, "dist/backend") } = {}) {
+export async function buildBackend({ outdir = path.join(root, "dist/backend"), entry = "backend/src/server.ts", target = "node22" } = {}) {
 	await mkdir(outdir, { recursive: true });
 	const result = await build({
 		absWorkingDir: root,
-		entryPoints: ["backend/src/server.ts"],
+		entryPoints: [entry],
 		outfile: path.join(outdir, "server.cjs"),
 		bundle: true,
 		platform: "node",
 		format: "cjs",
-		target: "node22",
+		target,
 		metafile: true,
 		legalComments: "eof",
 		logLevel: "warning",

@@ -177,6 +177,7 @@ function updatePlayState() {
 		navigator.mediaSession.playbackState = session.playing
 			? "playing"
 			: "paused";
+	window.qqmuiAndroid?.playback(session.current?.title || "qqmui", session.current?.artist || "音乐播放器", session.playing);
 }
 function updateLikeState() {
 	const isLiked = !!session.current && liked.has(session.current.id);
@@ -333,9 +334,8 @@ function render() {
 	if (session.current) {
 		const track = session.current;
 		$("#track-title").textContent = track.title;
-		$("#track-artist").textContent = [track.artist, track.album]
-			.filter(Boolean)
-			.join(" · ");
+		$("#track-singer").textContent = track.artist || "";
+		$("#track-album").textContent = track.album ? `${track.artist ? " · " : ""}${track.album}` : "";
 		$("#album-art").dataset.art = "original";
 		const cover = artworkUrl(track.coverUrl);
 		if ($("#cover-image").getAttribute("src") !== cover)
@@ -405,6 +405,7 @@ function positionModeSelection() {
 		$("#mode-menu").offsetTop -
 		$("#mode-toggle").offsetTop;
 	$(".mode-control").style.setProperty("--mode-selected-offset", `${offset}px`);
+	$(".mode-control").style.setProperty("--mode-selected-x", `${selected.offsetLeft + $("#mode-menu").offsetLeft - $("#mode-toggle").offsetLeft}px`);
 }
 function prepareModeSelection(button) {
 	const toggle = $("#mode-toggle");
@@ -1125,6 +1126,21 @@ if (navigator.mediaSession) {
 			/* OS support varies. */
 		}
 	}
+}
+if (window.qqmuiAndroid) {
+	document.body.classList.add("android");
+	window.addEventListener("qqmui-media", (event) => {
+		if (!authReady) return;
+		if (event.detail === "play") void transport.play();
+		else if (event.detail === "pause") transport.pause();
+		else if (event.detail === "next" || event.detail === "previous") void advance(event.detail);
+	});
+	window.addEventListener("qqmui-back", () => {
+		if (!$("#queue-panel").hidden) closeQueue();
+		else if (modeMenuOpen) setModeMenu(false);
+		else if (view !== "player") returnToPlayer();
+		else window.qqmuiAndroid.minimize();
+	});
 }
 if (window.interludeDesktop) {
 	document.documentElement.classList.add("desktop");

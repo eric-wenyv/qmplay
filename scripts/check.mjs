@@ -23,3 +23,7 @@ if (existsSync("backend/tsconfig.json")) {
 	const result = spawnSync(process.execPath, ["node_modules/typescript/bin/tsc", "-p", "backend/tsconfig.json", "--noEmit"], { stdio: "inherit" });
 	if (result.status !== 0) process.exit(result.status || 1);
 }
+if (existsSync("android/tsconfig.json")) {
+	const result = spawnSync(process.execPath, ["node_modules/typescript/bin/tsc", "-p", "android/tsconfig.json", "--noEmit"], { stdio: "inherit" });
+	if (result.status !== 0) process.exit(result.status || 1);
+}

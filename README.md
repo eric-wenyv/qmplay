@@ -1,6 +1,6 @@
 # qqmui
 
-面向 Linux 的极简 QQ 音乐播放器，基于 Electron，内置精简的 `qq-music-api` 后端。
+面向 Linux 和 Android 的极简 QQ 音乐播放器，内置精简的 `qq-music-api` 后端。
 
 ## 功能
 
@@ -10,7 +10,7 @@
 - 歌手专辑：点击歌手查看专辑，点击专辑播放整张专辑；顶部单行显示歌手图片、名字和全部歌曲播放按钮。
 - 歌手全部歌曲和专辑歌曲按每页 50 首载入，接近队尾时自动预取下一页（随机播放在切歌时续载），不再截断为前 50 或 1000 首。分页请求合并、切换队列时取消旧请求，长队列只渲染可见区域附近的 60 行；队列、分页和进度可在重启后继续恢复。
 - QQ 音乐收藏同步
-- 左上角菜单提供主页、电台、收藏和歌手入口；点击「主页」返回播放界面。
+- 页面菜单提供主页、电台、收藏和歌手入口，桌面端位于左上角、移动端位于下半部右上角；点击「主页」返回播放界面。
 - 点击专辑封面查看歌词；点击歌词外的空白区域返回播放界面，点击歌词仍可跳转到对应进度。
 - 独立播放队列：切换电台、歌手搜索、歌手专辑、收藏或歌词页面时继续播放；点击电台、专辑、歌手播放按钮、收藏歌曲或收藏页的「播放全部」才会替换队列。收藏同步和取消收藏不会删除队列中的歌曲，队列及进度会在重启后恢复（默认暂停）。
 
@@ -40,5 +40,24 @@ pnpm start
 pnpm check
 pnpm test
 ```
+
+## Android 与移动端
+
+移动端按手机实际宽高铺满可用区域，沿用封面取色和原有图标。上方显示封面或当前浏览页面；歌曲名称和浅色小字歌手排在同一行，下接无时间数字的进度条。下方轮盘直径约为屏幕宽度的 80%，左右留白缩小至原来约一半，并压缩封面上下间距；短屏或软键盘弹出时随可用高度收缩。轮盘中央播放/暂停、左右切歌、上方打开队列、下方切换播放方式；页面切换菜单保留在下半部右上角。桌面 Electron 界面保留原布局及时间显示。封面点击查看歌词、收藏和队列操作继续使用原有逻辑。
+
+APK 内置 Node.js Mobile 和同一套 controller → service → util 后端，服务仅监听手机自身的回环地址，首次启动由原生活动写入私有访问凭据。无需部署远程 API，也无需 ADB 端口转发。登录凭据保存在应用私有目录，播放队列与进度保存在 WebView 本地存储；关闭后重开默认暂停。支持通知栏/耳机切歌、后台播放及 Android 返回键（先关闭队列或返回播放页）。从最近任务中划掉应用后结束播放。
+
+构建需要 Linux、JDK 17+、Android SDK platform 35、build-tools 35.0.0+、NDK（推荐 29）、`curl`、`unzip` 和 `zip`。SDK 默认位于 `~/Android/Sdk`，可设置 `ANDROID_HOME` 或 `ANDROID_SDK_ROOT`，NDK 可由 `ANDROID_NDK_HOME` 指定。无需安装 Android Studio 或 Gradle。
+
+```sh
+pnpm install --frozen-lockfile
+pnpm check
+pnpm test
+pnpm build:android
+# 构建、安装到当前唯一的 ADB 设备并启动
+pnpm install:android
+```
+
+产物为 `release/qqmui-1.0.0-arm64.apk`，附带 SHA256 文件。当前构建面向 ARM64 手机，最低 Android 8.0；内置 Node.js Mobile 18.20.4 原始二进制只支持 4 KB 内存页设备，16 KB 页设备需要升级或重编该运行时。首次构建下载运行时并缓存于 `.cache/android/`。本地签名密钥生成并保存在 `~/.local/share/qqmui/android-signing.p12`，后续安装复用该密钥以保留应用数据；正式发行可通过 `QQMUI_ANDROID_KEYSTORE`、`QQMUI_ANDROID_KEYSTORE_PASSWORD`、`QQMUI_ANDROID_KEY_ALIAS` 指定自己的签名。该脚本用于本地 APK 分发，未配置应用商店发布。
 
 歌曲播放权限及可用音质取决于 QQ 音乐账号和版权。第三方来源与许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

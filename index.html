@@ -2,7 +2,7 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#665e50" />
     <meta name="description" content="qqmui（qq music ui），面向 Linux 的极简 QQ 音乐播放器。" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' https: http:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
@@ -47,7 +47,7 @@
             <span class="cover-index" aria-hidden="true">01 — FM</span>
           </div>
           <div class="track-meta">
-            <div class="track-copy"><h1 id="track-title">qqmui</h1><p id="track-artist">让音乐慢慢响起</p></div>
+            <div class="track-copy"><h1 id="track-title">qqmui</h1><p id="track-artist"><span id="track-singer">让音乐慢慢响起</span><span id="track-album"></span></p></div>
             <button id="like-toggle" class="icon-button like-button" type="button" aria-label="喜欢这首歌" aria-pressed="false" data-tip="喜欢"><span class="icon-slot" data-icon="heart"></span></button>
           </div>
         </div>
@@ -79,13 +79,17 @@
 
       <footer class="player-footer">
         <div class="timeline"><input id="seek" type="range" min="0" max="0" value="0" step="1" aria-label="播放进度" /><div class="time-labels"><span id="elapsed">0:00</span><span id="duration">0:00</span></div></div>
+        <div class="control-deck">
         <nav class="transport" aria-label="播放控制">
+          <div class="click-wheel">
           <button id="order-toggle" class="icon-button side-control" type="button" aria-label="播放顺序：列表循环" data-tip="列表循环"><span class="icon-slot" data-icon="repeat"></span></button>
           <button id="previous-track" class="icon-button skip-control" type="button" aria-label="上一首" data-tip="上一首"><span class="icon-slot" data-icon="previous"></span></button>
           <button id="play-toggle" class="play-button" type="button" aria-label="播放" data-tip="播放 / 空格"><span class="icon-slot" data-icon="play"></span></button>
           <button id="next-track" class="icon-button skip-control" type="button" aria-label="下一首" data-tip="下一首"><span class="icon-slot" data-icon="next"></span></button>
           <button id="queue-toggle" class="icon-button side-control" type="button" aria-label="播放队列" aria-expanded="false" aria-controls="queue-panel" data-tip="播放队列"><span class="icon-slot" data-icon="queue"></span><span id="queue-indicator" class="queue-indicator"></span></button>
+          </div>
         </nav>
+        </div>
       </footer>
 
       <div id="notice" class="notice" role="status" hidden><span id="notice-message"></span><button id="notice-action" type="button" hidden>重试</button><button id="dismiss-notice" type="button" aria-label="关闭提示">×</button></div>

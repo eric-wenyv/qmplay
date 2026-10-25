@@ -410,6 +410,7 @@ h1 {
 	margin: 0 5px;
 	color: #ffffff66;
 }
+.track-copy p :is(#track-singer, #track-album) { margin: 0; color: inherit; }
 .like-button {
 	width: 34px;
 	height: 34px;
@@ -508,6 +509,7 @@ h1 {
 	max-width: 420px;
 	margin: 8px auto 0;
 }
+.control-deck, .click-wheel { display: contents; }
 .transport .side-control {
 	color: #ffffffc7;
 }
@@ -1320,4 +1322,125 @@ body.desktop {
 	font-size: 11px;
 	line-height: 1.8;
 	color: var(--muted);
+}
+
+/* The mobile controls share the artwork palette and the desktop transport actions. */
+@media (max-width: 560px), (pointer: coarse) and (max-width: 1024px) {
+	body:not(.desktop) {
+		--wheel-size: min(80vw, max(150px, calc(100dvh - 190px)));
+		--controls-height: calc(var(--wheel-size) + 22px);
+		padding: 0;
+		overscroll-behavior: none;
+	}
+	body:not(.desktop) .player {
+		width: 100%;
+		height: 100dvh;
+		min-height: 0;
+		border: 0;
+		border-radius: 0;
+		padding-top: env(safe-area-inset-top);
+		box-shadow: none;
+	}
+	body:not(.desktop) .topbar {
+		position: absolute;
+		top: calc(100% - var(--controls-height) - env(safe-area-inset-bottom) - 12px);
+		right: max(20px, env(safe-area-inset-right));
+		padding: 0;
+		height: var(--mode-size);
+		-webkit-app-region: no-drag;
+	}
+	body:not(.desktop) .mode-control::before {
+		left: auto;
+		right: calc(-1 * var(--mode-padding));
+		transition: width .32s cubic-bezier(.2,.8,.2,1), opacity .18s;
+	}
+	body:not(.desktop) .mode-control[data-open="true"]::before {
+		width: calc(4 * var(--mode-size) + 5 * var(--mode-padding));
+		height: calc(var(--mode-size) + 2 * var(--mode-padding));
+	}
+	body:not(.desktop) .mode-menu {
+		left: auto;
+		right: calc(-1 * var(--mode-padding));
+		width: calc(4 * var(--mode-size) + 5 * var(--mode-padding));
+		flex-direction: row;
+	}
+	body:not(.desktop) .mode-control[data-open="true"] .mode-toggle {
+		transform: translate(var(--mode-selected-x, 0px), var(--mode-selected-offset, 0px));
+	}
+	body:not(.desktop) .main-stage {
+		padding: 8px 0 0;
+	}
+	body:not(.desktop) .listening-view {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		width: 82%;
+		max-width: min(380px, calc(100dvh - var(--controls-height) - 82px));
+	}
+	body:not(.desktop) .album-art { width: 100%; flex-shrink: 0; margin-block: auto; }
+	body:not(.desktop) .track-meta { flex-shrink: 0; min-height: 34px; margin-top: 4px; gap: 8px; }
+	body:not(.desktop) .track-copy { display: flex; align-items: baseline; gap: 8px; flex: 1; min-width: 0; }
+	body:not(.desktop) .track-copy h1 { font-size: 16px; margin: 0; max-width: 72%; flex: 0 1 auto; letter-spacing: .3px; }
+	body:not(.desktop) .track-copy p { font-size: 11px; color: #ffffff8c; flex: 1; min-width: 0; letter-spacing: .2px; }
+	body:not(.desktop) #track-album, body:not(.desktop) .cover-index { display: none; }
+	body:not(.desktop) .like-button { margin-right: 0; }
+	body:not(.desktop) .player-footer {
+		padding: 0 0 calc(12px + env(safe-area-inset-bottom));
+	}
+	body:not(.desktop) .timeline { width: 82%; max-width: min(380px, calc(100dvh - var(--controls-height) - 82px)); }
+	body:not(.desktop) .timeline input { height: 20px; }
+	body:not(.desktop) .time-labels { display: none; }
+	body:not(.desktop) .control-deck {
+		display: flex;
+		position: relative;
+		height: var(--controls-height);
+		align-items: flex-end;
+		justify-content: center;
+		padding-bottom: 6px;
+	}
+	body:not(.desktop) .transport {
+		position: static;
+		width: auto;
+		max-width: none;
+		margin: 0;
+		opacity: 1;
+	}
+	body:not(.desktop) .click-wheel {
+		display: grid;
+		grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+		place-items: center;
+		width: var(--wheel-size);
+		height: var(--wheel-size);
+		padding: 7px;
+		border: 1px solid #ffffff2b;
+		border-radius: 50%;
+		background: linear-gradient(145deg, #ffffff1c, #ffffff09);
+		box-shadow: inset 0 1px 1px #ffffff18, 0 8px 24px #0000000d;
+	}
+	body:not(.desktop) .click-wheel .icon-button {
+		width: 100%;
+		height: 100%;
+		min-width: 44px;
+		min-height: 44px;
+		color: #ffffffe6;
+	}
+	body:not(.desktop) #queue-toggle { grid-area: 1 / 2; }
+	body:not(.desktop) #previous-track { grid-area: 2 / 1; }
+	body:not(.desktop) #play-toggle {
+		grid-area: 2 / 2;
+		width: 100%;
+		height: 100%;
+		border: 1px solid #ffffff5c;
+		box-shadow: 0 3px 14px #00000012;
+	}
+	body:not(.desktop) #next-track { grid-area: 2 / 3; }
+	body:not(.desktop) #order-toggle { grid-area: 3 / 2; }
+	body:not(.desktop) .side-control .icon-slot { width: 23px; height: 23px; }
+	body:not(.desktop) .search-view { width: 84%; padding-top: 0; padding-bottom: 8px; }
+	body:not(.desktop) .artist-results, body:not(.desktop) .lyrics-lines { overscroll-behavior: contain; }
+	body:not(.desktop) .queue-panel { width: min(100%, 420px); }
+	body:not(.desktop) .queue-header { padding-top: max(24px, env(safe-area-inset-top)); }
+	body:not(.desktop) .queue-bottom { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+	body:not(.desktop) [data-tip]::after { display: none; }
+	body:not(.desktop).auth-gated .auth-view { flex: 1; min-height: 0; }
 }

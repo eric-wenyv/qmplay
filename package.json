@@ -21,7 +21,9 @@
 		"dev:ui": "node scripts/serve.mjs",
 		"test:integration": "node scripts/test-integration.mjs",
 		"build:backend": "node scripts/build-backend.mjs",
-		"build:linux": "node scripts/build-linux.mjs"
+		"build:linux": "node scripts/build-linux.mjs",
+		"build:android": "node scripts/build-android.mjs",
+		"install:android": "node scripts/build-android.mjs --install"
 	},
 	"devDependencies": {
 		"electron": "45.0.0",
