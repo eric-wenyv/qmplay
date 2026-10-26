@@ -6,7 +6,7 @@ const provider = new QQMusicProvider({
 	baseUrl: backend.connection.origin,
 	fetcher: async (url, options = {}) => {
 		const headers = new Headers(options.headers);
-		headers.set("X-QQMUI-Token", (await backend.start()).token);
+		headers.set("X-QMPLAY-Token", (await backend.start()).token);
 		return fetch(url, { ...options, headers });
 	},
 });

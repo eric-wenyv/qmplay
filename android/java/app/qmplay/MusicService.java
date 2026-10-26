@@ -1,4 +1,4 @@
-package app.qqmui;
+package app.qmplay;
 
 import android.app.*;
 import android.content.*;
@@ -33,23 +33,23 @@ public class MusicService extends Service {
         instance = this;
         NotificationManager manager = getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel("playback", "音乐播放", NotificationManager.IMPORTANCE_LOW));
-        media = new MediaSession(this, "qqmui");
+        media = new MediaSession(this, "qmplay");
         media.setCallback(new MediaSession.Callback() {
             @Override public void onPlay() { MainActivity.dispatch("play"); }
             @Override public void onPause() { MainActivity.dispatch("pause"); }
             @Override public void onSkipToPrevious() { MainActivity.dispatch("previous"); }
             @Override public void onSkipToNext() { MainActivity.dispatch("next"); }
         });
-        wake = ((PowerManager)getSystemService(POWER_SERVICE)).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "qqmui:playback");
+        wake = ((PowerManager)getSystemService(POWER_SERVICE)).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "qmplay:playback");
         wake.setReferenceCounted(false);
-        startForeground(1, notification("qqmui", "音乐播放器", false));
+        startForeground(1, notification("qmplay", "音乐播放器", false));
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int id) {
         if (intent != null && intent.getAction() != null) MainActivity.dispatch(intent.getAction());
         if (!started) {
             started = true;
-            new Thread(this::launch, "qqmui-runtime").start();
+            new Thread(this::launch, "qmplay-runtime").start();
         }
         return START_NOT_STICKY;
     }
@@ -96,12 +96,12 @@ public class MusicService extends Service {
             }
             System.loadLibrary("c++_shared");
             System.loadLibrary("node");
-            System.loadLibrary("qqmui");
+            System.loadLibrary("qmplay");
             new Thread(() -> {
                 try {
                     for (int attempt = 0; attempt < 500; attempt++) {
                         HttpURLConnection connection = (HttpURLConnection)new URL(origin() + "/index.html").openConnection();
-                        connection.setRequestProperty("Cookie", "qqmui_local=" + token);
+                        connection.setRequestProperty("Cookie", "qmplay_local=" + token);
                         connection.setConnectTimeout(200); connection.setReadTimeout(500);
                         try { if (connection.getResponseCode() == 200) { ready = true; return; } }
                         catch (IOException ignored) {} finally { connection.disconnect(); }
@@ -109,11 +109,11 @@ public class MusicService extends Service {
                     }
                     failure = "本地音乐服务连接超时";
                 } catch (Exception error) { failure = "无法连接音乐服务"; }
-            }, "qqmui-ready").start();
+            }, "qmplay-ready").start();
             int result = startNode(new File(runtime, "server.cjs").getPath(), new File(runtime, "web").getPath(), new File(getFilesDir(), "auth").getPath(), port, token);
             failure = "音乐服务已退出（" + result + "）";
         } catch (Throwable error) {
-            Log.e("qqmui", "Runtime startup failed", error);
+            Log.e("qmplay", "Runtime startup failed", error);
             failure = error.getClass().getSimpleName();
         }
     }

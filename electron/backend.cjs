@@ -37,7 +37,7 @@ function createBackendController({ spawn, entry, env = process.env, authDirector
         const launched = spawn(entry, {
           ...env,
           PORT: '0',
-          QQMUI_API_TOKEN: token,
+          QMPLAY_API_TOKEN: token,
           ...(authDirectory ? { QQ_MUSIC_AUTH_DIR: authDirectory } : {}),
         });
         child = launched;

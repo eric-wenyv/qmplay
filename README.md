@@ -1,6 +1,8 @@
-# qqmui
+# qmplay
 
 面向 Linux、Windows 和 Android 的极简 QQ 音乐播放器，内置精简的 `qq-music-api` 后端。
+
+项目统一命名为 `qmplay`，应用标识为 `app.qmplay`，构建产物以 `qmplay-` 开头。桌面端会优先使用 `qmplay` 数据目录，也会复用旧版 `qqmui`、`Interlude` 等已有目录，并兼容旧版播放队列和收藏缓存。Android 包名由 `app.qqmui` 改为 `app.qmplay`，作为新应用安装，旧版应用的数据不会自动迁移。
 
 ## 功能
 
@@ -50,11 +52,11 @@ pnpm build:windows
 
 脚本先检查代码、运行全部测试并构建内置后端，再生成 Windows x64 安装版和免安装版：
 
-- `release/qqmui-1.0.0-win-x64-setup.exe`：安装向导，可选择安装位置，创建桌面和开始菜单入口。
-- `release/qqmui-1.0.0-win-x64-portable.exe`：直接运行，无需安装。
+- `release/qmplay-1.0.0-win-x64-setup.exe`：安装向导，可选择安装位置，创建桌面和开始菜单入口。
+- `release/qmplay-1.0.0-win-x64-portable.exe`：直接运行，无需安装。
 - `release/SHA256SUMS-windows-x64`：以上两个文件的 SHA256 校验值，不覆盖 Linux 的校验文件。
 
-Windows 用户无需另装 Node.js 或部署 API。两种版本均将登录凭据和播放状态保存在当前用户的 `%APPDATA%/qqmui`，免安装版也会复用该目录；关闭窗口后继续在托盘运行，通过托盘「退出」结束播放。卸载默认保留用户数据。当前未配置代码签名证书，分发产物为未签名版本。
+Windows 用户无需另装 Node.js 或部署 API。两种版本均将登录凭据和播放状态保存在当前用户的 `%APPDATA%/qmplay`，免安装版也会复用该目录；关闭窗口后继续在托盘运行，通过托盘「退出」结束播放。卸载默认保留用户数据。当前未配置代码签名证书，分发产物为未签名版本。
 
 `pnpm dist:win` 为同一构建入口。需要 Windows ARM64 时运行 `pnpm build:windows --arm64`，产物和校验文件名中的 `x64` 相应替换为 `arm64`。Linux 交叉构建需先安装 Wine，并确保 `wine` 命令在 `PATH` 中；脚本会在构建前检查。首次构建需要联网下载 Electron 和 NSIS。也可使用包含 Wine 的 [electron-builder Docker 构建环境](https://www.electron.build/v26/docs/features/multi-platform-build/)。
 
@@ -75,7 +77,7 @@ PR、推送到 `main`/`master`、推送 `v*` 标签及手动运行均触发完�
 
 Windows 生成 x64/ARM64 安装版和免安装版；Linux 生成 x64 deb、rpm、AppImage；Android 生成 ARM64 APK。非版本发布构建使用临时 CI 密钥签名的 debug 预览 APK。推送与 `package.json` 版本一致的标签（例如 `v1.0.0`）后，必须使用已配置的 Android 正式签名密钥；全部平台通过后，自动上传安装包、各平台校验文件、汇总 `SHA256SUMS` 和 `build-manifest.json`，然后发布 GitHub Release。预发布版本不会设为 latest。
 
-首次发布前需配置 `QQMUI_ANDROID_KEYSTORE_BASE64`、`QQMUI_ANDROID_KEYSTORE_PASSWORD`，可选配置别名及 Windows 签名证书。具体触发条件、产物、检查范围和签名配置见 [CI 与发布文档](.github/CI.md)。
+首次发布前需配置 `QMPLAY_ANDROID_KEYSTORE_BASE64`、`QMPLAY_ANDROID_KEYSTORE_PASSWORD`，可选配置别名及 Windows 签名证书。具体触发条件、产物、检查范围和签名配置见 [CI 与发布文档](.github/CI.md)。
 
 ## Android 与移动端
 
@@ -96,6 +98,6 @@ pnpm build:android
 pnpm install:android
 ```
 
-产物为 `release/qqmui-1.0.0-arm64.apk`，附带 SHA256 文件。当前构建面向 ARM64 手机，最低 Android 8.0；内置 Node.js Mobile 18.20.4 原始二进制只支持 4 KB 内存页设备，16 KB 页设备需要升级或重编该运行时。首次构建下载运行时并缓存于 `.cache/android/`。本地签名密钥生成并保存在 `~/.local/share/qqmui/android-signing.p12`，后续安装复用该密钥以保留应用数据；正式发行可通过 `QQMUI_ANDROID_KEYSTORE`、`QQMUI_ANDROID_KEYSTORE_PASSWORD`、`QQMUI_ANDROID_KEY_ALIAS` 指定自己的签名。该脚本用于本地 APK 分发，未配置应用商店发布。
+产物为 `release/qmplay-1.0.0-arm64.apk`，附带 SHA256 文件。当前构建面向 ARM64 手机，最低 Android 8.0；内置 Node.js Mobile 18.20.4 原始二进制只支持 4 KB 内存页设备，16 KB 页设备需要升级或重编该运行时。首次构建下载运行时并缓存于 `.cache/android/`。本地签名密钥生成并保存在 `~/.local/share/qmplay/android-signing.p12`，后续安装复用该密钥以保留应用数据；正式发行可通过 `QMPLAY_ANDROID_KEYSTORE`、`QMPLAY_ANDROID_KEYSTORE_PASSWORD`、`QMPLAY_ANDROID_KEY_ALIAS` 指定自己的签名。该脚本用于本地 APK 分发，未配置应用商店发布。
 
 歌曲播放权限及可用音质取决于 QQ 音乐账号和版权。第三方来源与许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

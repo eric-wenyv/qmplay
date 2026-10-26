@@ -55,7 +55,7 @@ function app(preferences = {}, { mobile = false, desktop = false, sourceText = s
 	});
 	const window = Object.assign(new EventTarget(), {
 		matchMedia: () => media,
-		...(desktop && { interludeDesktop: { minimize() {}, close() {} } }),
+		...(desktop && { qmplayDesktop: { minimize() {}, close() {} } }),
 	});
 	class Audio extends EventTarget {
 		paused = true;

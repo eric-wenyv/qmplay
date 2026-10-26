@@ -179,13 +179,13 @@ function updatePlayState() {
 	$(".player").classList.toggle("is-buffering", loading);
 	$("#play-toggle").setAttribute("aria-busy", String(loading));
 	document.title = session.current
-		? `${session.current.title} · qqmui`
-		: "qqmui · qq music ui";
+		? `${session.current.title} · qmplay`
+		: "qmplay · QQ 音乐播放器";
 	if (navigator.mediaSession)
 		navigator.mediaSession.playbackState = session.playing
 			? "playing"
 			: "paused";
-	window.qqmuiAndroid?.playback(session.current?.title || "qqmui", session.current?.artist || "音乐播放器", session.playing);
+	window.qmplayAndroid?.playback(session.current?.title || "qmplay", session.current?.artist || "音乐播放器", session.playing);
 }
 function updateLikeState() {
 	const isLiked = !!session.current && liked.has(session.current.id);
@@ -781,7 +781,7 @@ function updateOrder() {
 	$("#order-toggle").dataset.tip = orderLabels[session.order];
 }
 function isMobileLayout() {
-	return !window.interludeDesktop && mobileLayout.matches;
+	return !window.qmplayDesktop && mobileLayout.matches;
 }
 function isPageActive(page) {
 	return view === page || (isMobileLayout() && view === "player" && mobilePage === page);
@@ -1250,30 +1250,30 @@ if (navigator.mediaSession) {
 		}
 	}
 }
-if (window.qqmuiAndroid) {
+if (window.qmplayAndroid) {
 	document.body.classList.add("android");
-	window.addEventListener("qqmui-media", (event) => {
+	window.addEventListener("qmplay-media", (event) => {
 		if (!authReady) return;
 		if (event.detail === "play") void transport.play();
 		else if (event.detail === "pause") transport.pause();
 		else if (event.detail === "next" || event.detail === "previous") void advance(event.detail);
 	});
-	window.addEventListener("qqmui-back", () => {
+	window.addEventListener("qmplay-back", () => {
 		if (modeMenuOpen) closeModeMenu({ focus: true });
 		else if (!$("#queue-panel").hidden) closeQueue();
 		else if (view !== "player") returnToPlayer();
-		else window.qqmuiAndroid.minimize();
+		else window.qmplayAndroid.minimize();
 	});
 }
-if (window.interludeDesktop) {
+if (window.qmplayDesktop) {
 	document.documentElement.classList.add("desktop");
 	document.body.classList.add("desktop");
 	$(".window-controls").hidden = false;
 	$("#minimize-window").addEventListener("click", () =>
-		window.interludeDesktop.minimize(),
+		window.qmplayDesktop.minimize(),
 	);
 	$("#close-window").addEventListener("click", () =>
-		window.interludeDesktop.close(),
+		window.qmplayDesktop.close(),
 	);
 }
 mobileLayout.addEventListener("change", syncQueueLayout);

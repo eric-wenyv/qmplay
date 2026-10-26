@@ -74,7 +74,7 @@ export const authGuard = async (ctx: Context, next: Next) => {
   ctx.set('Cache-Control', 'no-store');
   // Same-origin browser proxy and desktop protocol are the supported clients. Do not reflect arbitrary origins.
   const origin = ctx.get('Origin');
-  let allowed = !origin || origin === 'interlude://app' || origin === ctx.origin;
+  let allowed = !origin || ['qmplay://app', 'interlude://app'].includes(origin) || origin === ctx.origin;
   if (origin && !allowed) {
     try {
       const url = new URL(origin);

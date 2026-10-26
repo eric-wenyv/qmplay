@@ -1,5 +1,6 @@
 import { validTrack } from './storage.js';
-const cacheKey = 'interlude-account-favorites-v1';
+const cacheKey = 'qmplay-account-favorites-v1';
+const legacyCacheKey = 'interlude-account-favorites-v1';
 export class FavoriteSync {
   constructor({
     provider,
@@ -14,7 +15,7 @@ export class FavoriteSync {
     this.work = Promise.resolve();
     this.state = { accounts: {}, migration: { owner: '', tracks: [], done: false } };
     try {
-      const saved = JSON.parse(storage.getItem(cacheKey) || 'null');
+      const saved = JSON.parse(storage.getItem(cacheKey) || storage.getItem(legacyCacheKey) || 'null');
       if (
         saved?.accounts &&
         !Array.isArray(saved.accounts) &&

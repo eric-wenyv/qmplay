@@ -147,8 +147,8 @@ export class QQMusicProvider {
 	async request(path, params = {}, { signal, method = "GET", body: requestBody } = {}) {
 		const base =
 			this.baseUrl ||
-			(globalThis.location?.protocol === "interlude:"
-				? "interlude://app/api"
+			(["qmplay:", "interlude:"].includes(globalThis.location?.protocol)
+				? `${globalThis.location.protocol}//app/api`
 				: "/api");
 		const query = new URLSearchParams(
 			Object.entries(params).filter(([, v]) => v !== undefined),

@@ -44,22 +44,24 @@ Android 构建固定 JDK 17、API 35、build-tools 35.0.0、NDK 29.0.14206865；
 
 在仓库 Settings → Secrets and variables → Actions 配置：
 
+改名后的签名变量统一使用 `QMPLAY_` 前缀；已配置旧版 `QQMUI_` Secrets 的仓库需将相同值配置到下列新名称。复用旧版签名密钥时，将 `QMPLAY_ANDROID_KEY_ALIAS` 设为该密钥原有的别名；本地构建可通过 `QMPLAY_ANDROID_KEYSTORE` 指定现有密钥文件。
+
 | Secret | 必需 | 用途 |
 | --- | --- | --- |
-| `QQMUI_ANDROID_KEYSTORE_BASE64` | 发布时必需 | PKCS12 签名密钥文件的 Base64 |
-| `QQMUI_ANDROID_KEYSTORE_PASSWORD` | 发布时必需 | 密钥库密码 |
-| `QQMUI_ANDROID_KEY_ALIAS` | 可选 | 密钥别名，默认 `qqmui` |
-| `QQMUI_ANDROID_KEY_PASSWORD` | 可选 | 私钥密码，默认与密钥库密码相同 |
+| `QMPLAY_ANDROID_KEYSTORE_BASE64` | 发布时必需 | PKCS12 签名密钥文件的 Base64 |
+| `QMPLAY_ANDROID_KEYSTORE_PASSWORD` | 发布时必需 | 密钥库密码 |
+| `QMPLAY_ANDROID_KEY_ALIAS` | 可选 | 密钥别名，默认 `qmplay` |
+| `QMPLAY_ANDROID_KEY_PASSWORD` | 可选 | 私钥密码，默认与密钥库密码相同 |
 | `WINDOWS_CERTIFICATE_BASE64` | 可选 | electron-builder 支持的 PFX 证书 Base64；未配置时 Windows 包不签名 |
 | `WINDOWS_CERTIFICATE_PASSWORD` | 可选 | PFX 密码 |
 
-Android 必须沿用已分发 APK 的签名密钥，才能覆盖安装并保留应用数据。本机原有密钥默认位于 `~/.local/share/qqmui/android-signing.p12`。例如在 Linux 上通过 GitHub CLI 设置已有密钥，不将密钥内容写入终端：
+同一 Android 包名的后续版本必须沿用已分发 APK 的签名密钥，才能覆盖安装并保留应用数据。本地构建默认将密钥保存在 `~/.local/share/qmplay/android-signing.p12`。例如在 Linux 上通过 GitHub CLI 设置已有密钥，不将密钥内容写入终端：
 
 ```sh
-base64 -w0 ~/.local/share/qqmui/android-signing.p12 | gh secret set QQMUI_ANDROID_KEYSTORE_BASE64
-gh secret set QQMUI_ANDROID_KEYSTORE_PASSWORD
+base64 -w0 ~/.local/share/qmplay/android-signing.p12 | gh secret set QMPLAY_ANDROID_KEYSTORE_BASE64
+gh secret set QMPLAY_ANDROID_KEYSTORE_PASSWORD
 # 自定义别名时再配置
-gh secret set QQMUI_ANDROID_KEY_ALIAS
+gh secret set QMPLAY_ANDROID_KEY_ALIAS
 ```
 
 发布密钥只提供给标签发布的 Android job；Windows 证书只提供给标签发布的 Windows 构建步骤。密钥临时解码到 runner temp，工作流结束前删除；只导出文件路径，不将密码或 Base64 写入 Actions 环境文件或 artifacts。缺少 Android 正式签名配置会直接令发布构建失败，不生成临时密钥替代。普通 CI 的预览密钥每次运行独立，因此预览 APK 不能保证覆盖安装之前的预览或正式版本。

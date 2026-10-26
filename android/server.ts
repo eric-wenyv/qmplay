@@ -30,13 +30,13 @@ const server = http.createServer(async (req, res) => {
     // Bootstrap once from the native activity; other local apps cannot access the API.
     if (url.pathname === '/bootstrap' && matches(url.searchParams.get('token') || '')) {
       res.writeHead(302, {
-        'Set-Cookie': `qqmui_local=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`,
+        'Set-Cookie': `qmplay_local=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`,
         Location: '/index.html',
       });
       res.end();
       return;
     }
-    const cookie = /(?:^|;\s*)qqmui_local=([a-f0-9]+)/.exec(req.headers.cookie || '')?.[1] || '';
+    const cookie = /(?:^|;\s*)qmplay_local=([a-f0-9]+)/.exec(req.headers.cookie || '')?.[1] || '';
     if (req.headers.host !== `127.0.0.1:${port}` || !matches(cookie)) {
       res.writeHead(403).end('Forbidden');
       return;

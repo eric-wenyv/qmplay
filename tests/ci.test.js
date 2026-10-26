@@ -17,7 +17,7 @@ const releaseEnv = { GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/tags/v1.2.3", 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
 async function temporary(t) {
-	const directory = await mkdtemp(path.join(os.tmpdir(), "qqmui-ci-test-"));
+	const directory = await mkdtemp(path.join(os.tmpdir(), "qmplay-ci-test-"));
 	t.after(() => rm(directory, { recursive: true, force: true }));
 	return directory;
 }
@@ -130,12 +130,12 @@ test("draft retries do not recreate releases and prereleases are not marked late
 
 test("Android release signing requires configured secrets and never falls back to an ephemeral key", async () => {
 	await assert.rejects(prepareAndroidSigning({}), /require.*secrets/);
-	await assert.rejects(prepareAndroidSigning({ QQMUI_ANDROID_KEYSTORE_BASE64: "invalid!", QQMUI_ANDROID_KEYSTORE_PASSWORD: "secret" }), /base64/);
+	await assert.rejects(prepareAndroidSigning({ QMPLAY_ANDROID_KEYSTORE_BASE64: "invalid!", QMPLAY_ANDROID_KEYSTORE_PASSWORD: "secret" }), /base64/);
 });
 
 test("APK verification accepts current and legacy aapt2 minimum SDK fields and rejects debuggable release APKs", () => {
 	for (const field of ["minSdkVersion", "sdkVersion"]) {
-		const badging = `package: name='app.qqmui' versionCode='12' versionName='1.2.3'\n${field}:'26'\ntargetSdkVersion:'35'\nnative-code: 'arm64-v8a'\n`;
+		const badging = `package: name='app.qmplay' versionCode='12' versionName='1.2.3'\n${field}:'26'\ntargetSdkVersion:'35'\nnative-code: 'arm64-v8a'\n`;
 		const metadata = validateMetadata(pkg, manifest);
 		verifyAndroidBadging(badging, metadata, false);
 		verifyAndroidBadging(badging + "application-debuggable\n", metadata, true);
@@ -149,16 +149,16 @@ test("Android signing stages only a private temporary file and never writes key 
 	const bytes = Buffer.alloc(300, 0x51);
 	bytes[0] = 0x30;
 	const env = { RUNNER_TEMP: directory, GITHUB_ENV: path.join(directory, "github-env"),
-		QQMUI_ANDROID_KEYSTORE_BASE64: bytes.toString("base64"), QQMUI_ANDROID_KEYSTORE_PASSWORD: "private-password" };
+		QMPLAY_ANDROID_KEYSTORE_BASE64: bytes.toString("base64"), QMPLAY_ANDROID_KEYSTORE_PASSWORD: "private-password" };
 	const staged = await prepareAndroidSigning(env);
 	assert.deepEqual(await readFile(staged.filename), bytes);
 	if (process.platform !== "win32") assert.equal((await stat(staged.filename)).mode & 0o777, 0o600);
 	const exported = await readFile(env.GITHUB_ENV, "utf8");
-	assert(!exported.includes(env.QQMUI_ANDROID_KEYSTORE_BASE64));
-	assert(!exported.includes(env.QQMUI_ANDROID_KEYSTORE_PASSWORD));
-	await cleanupAndroidSigning({ ...env, QQMUI_ANDROID_SIGNING_DIR: staged.directory });
+	assert(!exported.includes(env.QMPLAY_ANDROID_KEYSTORE_BASE64));
+	assert(!exported.includes(env.QMPLAY_ANDROID_KEYSTORE_PASSWORD));
+	await cleanupAndroidSigning({ ...env, QMPLAY_ANDROID_SIGNING_DIR: staged.directory });
 	await assert.rejects(access(staged.filename), { code: "ENOENT" });
-	await assert.rejects(cleanupAndroidSigning({ ...env, QQMUI_ANDROID_SIGNING_DIR: directory }), /runner temp|unrelated/);
+	await assert.rejects(cleanupAndroidSigning({ ...env, QMPLAY_ANDROID_SIGNING_DIR: directory }), /runner temp|unrelated/);
 });
 
 test("desktop archive verification reads nested ASAR manifests on every host", async (t) => {
@@ -192,7 +192,7 @@ test("desktop archive verification reads nested ASAR manifests on every host", a
 	executable.writeUInt32LE(64, 60);
 	executable.write("PE\0\0", 64);
 	executable.writeUInt16LE(arch === "arm64" ? 0xaa64 : 0x8664, 68);
-	await writeFile(path.join(directory, "qqmui.exe"), executable);
+	await writeFile(path.join(directory, "qmplay.exe"), executable);
 	await verifyDesktop(directory, arch);
 });
 

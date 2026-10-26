@@ -177,23 +177,23 @@ jobs:
         if: ${{ matrix.arch == 'x64' }}
         shell: pwsh
         run: |
-          $destination = Join-Path $env:RUNNER_TEMP 'qqmui-install'
+          $destination = Join-Path $env:RUNNER_TEMP 'qmplay-install'
           $installer = (Get-ChildItem release/*-win-x64-setup.exe).FullName
           $process = Start-Process $installer -ArgumentList '/S', '/currentuser', "/D=$destination" -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "Installer exited $($process.ExitCode)" }
-          foreach ($file in @('qqmui.exe', 'resources/app.asar')) {
+          foreach ($file in @('qmplay.exe', 'resources/app.asar')) {
             $installed = (Get-FileHash (Join-Path $destination $file) -Algorithm SHA256).Hash
             $packaged = (Get-FileHash (Join-Path 'release/win-unpacked' $file) -Algorithm SHA256).Hash
             if ($installed -ne $packaged) { throw "Installed $file differs from build output" }
           }
-          $profile = Join-Path $env:APPDATA 'qqmui'
+          $profile = Join-Path $env:APPDATA 'qmplay'
           New-Item -ItemType Directory -Force $profile | Out-Null
           $sentinel = Join-Path $profile 'ci-uninstall-sentinel'
           Set-Content $sentinel 'preserve-user-data'
-          $process = Start-Process (Join-Path $destination 'Uninstall qqmui.exe') -ArgumentList '/S', '/currentuser' -Wait -PassThru
+          $process = Start-Process (Join-Path $destination 'Uninstall qmplay.exe') -ArgumentList '/S', '/currentuser' -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "Uninstaller exited $($process.ExitCode)" }
-          for ($i = 0; $i -lt 30 -and (Test-Path (Join-Path $destination 'qqmui.exe')); $i++) { Start-Sleep -Milliseconds 200 }
-          if (Test-Path (Join-Path $destination 'qqmui.exe')) { throw 'Uninstaller left the executable behind' }
+          for ($i = 0; $i -lt 30 -and (Test-Path (Join-Path $destination 'qmplay.exe')); $i++) { Start-Sleep -Milliseconds 200 }
+          if (Test-Path (Join-Path $destination 'qmplay.exe')) { throw 'Uninstaller left the executable behind' }
           if (!(Test-Path $sentinel)) { throw 'Uninstaller removed user data' }
       - name: Upload Windows packages
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -242,15 +242,15 @@ jobs:
       - name: Stage the release signing key
         if: ${{ needs.metadata.outputs.is_release == 'true' }}
         env:
-          QQMUI_ANDROID_KEYSTORE_BASE64: ${{ secrets.QQMUI_ANDROID_KEYSTORE_BASE64 }}
-          QQMUI_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.QQMUI_ANDROID_KEYSTORE_PASSWORD }}
+          QMPLAY_ANDROID_KEYSTORE_BASE64: ${{ secrets.QMPLAY_ANDROID_KEYSTORE_BASE64 }}
+          QMPLAY_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.QMPLAY_ANDROID_KEYSTORE_PASSWORD }}
         run: node scripts/ci/android-signing.mjs --stage
       - name: Build the release APK
         if: ${{ needs.metadata.outputs.is_release == 'true' }}
         env:
-          QQMUI_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.QQMUI_ANDROID_KEYSTORE_PASSWORD }}
-          QQMUI_ANDROID_KEY_ALIAS: ${{ secrets.QQMUI_ANDROID_KEY_ALIAS }}
-          QQMUI_ANDROID_KEY_PASSWORD: ${{ secrets.QQMUI_ANDROID_KEY_PASSWORD }}
+          QMPLAY_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.QMPLAY_ANDROID_KEYSTORE_PASSWORD }}
+          QMPLAY_ANDROID_KEY_ALIAS: ${{ secrets.QMPLAY_ANDROID_KEY_ALIAS }}
+          QMPLAY_ANDROID_KEY_PASSWORD: ${{ secrets.QMPLAY_ANDROID_KEY_PASSWORD }}
         run: pnpm build:android
       - name: Build a preview APK with a temporary CI key
         if: ${{ needs.metadata.outputs.is_release != 'true' }}

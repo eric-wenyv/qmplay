@@ -106,7 +106,7 @@ test('desktop creates a packaged tray icon with exactly the Show and Quit menu i
   const { windows: [window], trays: [tray], lifecycle } = await desktop();
   assert.equal(existsSync(tray.image), true);
   assert.equal(tray.image, window.options.icon);
-  assert.equal(tray.tooltip, 'qqmui');
+  assert.equal(tray.tooltip, 'qmplay');
   assert.deepEqual(Array.from(tray.menu, item => item.label), ['显示', '退出']);
   assert.equal(window.options.webPreferences.backgroundThrottling, false);
   assert.equal(window.visible, true);
@@ -115,7 +115,7 @@ test('desktop creates a packaged tray icon with exactly the Show and Quit menu i
 
 test('Windows uses the installer app ID and keeps playback alive until tray Quit', async () => {
   const { windows: [window], trays: [tray], lifecycle } = await desktop({ platform: 'win32' });
-  assert.equal(lifecycle.appId, 'app.qqmui');
+  assert.equal(lifecycle.appId, 'app.qmplay');
   window.close();
   assert.equal(window.destroyed, false);
   assert.equal(lifecycle.stops, 0);

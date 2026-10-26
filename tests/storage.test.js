@@ -10,6 +10,25 @@ const memory = () => ({
 		this.value = value;
 	},
 });
+test("restores the previous library after renaming and prefers subsequent qmplay saves", () => {
+	const legacy = JSON.stringify({
+		queue: [{ id: "saved-song", title: "上次播放" }], liked: [],
+		currentId: "saved-song", elapsed: 42,
+	});
+	const values = new Map([["interlude-library-v2", legacy]]);
+	const storage = {
+		getItem: (key) => values.get(key) ?? null,
+		setItem: (key, value) => values.set(key, value),
+	};
+	const restored = readLibrary(storage);
+	assert.equal(restored.currentId, "saved-song");
+	assert.equal(restored.queue[0].title, "上次播放");
+	assert.equal(restored.elapsed, 42);
+	assert.equal(writeLibrary({ ...restored, elapsed: 50 }, storage), true);
+	assert.equal(JSON.parse(values.get("qmplay-library-v2")).elapsed, 50);
+	assert.equal(readLibrary(storage).elapsed, 50);
+	assert.equal(values.get("interlude-library-v2"), legacy);
+});
 test("persists full liked records, queue and selected song without signed playback URLs", () => {
 	const storage = memory();
 	const track = {

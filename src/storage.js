@@ -1,4 +1,5 @@
-const preferenceKey = "interlude-library-v2";
+const preferenceKey = "qmplay-library-v2";
+const legacyPreferenceKey = "interlude-library-v2";
 function readQueueSource(data) {
 	const source = Object.hasOwn(data, "queueSource") ? data.queueSource : {
 		type: data.mode || "radio",
@@ -44,7 +45,7 @@ export function rememberArtist(history, artist) {
 }
 export function readLibrary(storage = globalThis.localStorage) {
 	try {
-		const data = JSON.parse(storage.getItem(preferenceKey) || "{}");
+		const data = JSON.parse(storage.getItem(preferenceKey) || storage.getItem(legacyPreferenceKey) || "{}");
 		return {
 			queueSource: readQueueSource(data),
 			artistHistory: artistHistory(data.artistHistory),

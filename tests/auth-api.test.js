@@ -70,7 +70,7 @@ test('private API proxy forwards only allowed methods and credential headers, wi
       Cookie: 'opaque=session',
       Origin: 'http://127.0.0.1:4173',
       'X-Untrusted': 'ignored',
-      'X-QQMUI-Token': 'renderer-cannot-override-this',
+      'X-QMPLAY-Token': 'renderer-cannot-override-this',
     },
     fetcher: async (url, options) => {
       captured = [url, options];
@@ -79,7 +79,7 @@ test('private API proxy forwards only allowed methods and credential headers, wi
   });
   assert.equal(response.status, 200);
   assert.equal(captured[0], 'http://127.0.0.1:43210/auth/qr');
-  assert.equal(captured[1].headers.get('X-QQMUI-Token'), 'a'.repeat(64));
+  assert.equal(captured[1].headers.get('X-QMPLAY-Token'), 'a'.repeat(64));
   assert.equal(captured[1].headers.get('Cookie'), 'opaque=session');
   assert.equal(captured[1].headers.has('X-Untrusted'), false);
   assert.equal((await proxy.proxyApi('/user/setCookie', '', { method: 'POST' })).status, 404);

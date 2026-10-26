@@ -19,7 +19,7 @@ export function validateMetadata(pkg, androidManifest, env = {}) {
 }
 
 export function packageGroups(version) {
-	const prefix = `qqmui-${version}`;
+	const prefix = `qmplay-${version}`;
 	return [
 		{ platform: "linux", arch: "x64", checksum: "SHA256SUMS-linux-x64", files:
 			[`${prefix}-amd64.deb`, `${prefix}-x86_64.rpm`, `${prefix}-x86_64.AppImage`] },

@@ -8,7 +8,7 @@
 #include <cstring>
 
 extern "C" JNIEXPORT jint JNICALL
-Java_app_qqmui_MusicService_startNode(JNIEnv* env, jclass, jstring script, jstring web,
+Java_app_qmplay_MusicService_startNode(JNIEnv* env, jclass, jstring script, jstring web,
                                      jstring auth, jint port, jstring token) {
   auto stringValue = [env](jstring value) {
     const char* bytes = env->GetStringUTFChars(value, nullptr);
@@ -31,7 +31,7 @@ Java_app_qqmui_MusicService_startNode(JNIEnv* env, jclass, jstring script, jstri
       ssize_t size;
       while ((size = read(fd, buffer, sizeof(buffer) - 1)) > 0) {
         buffer[size] = 0;
-        __android_log_write(ANDROID_LOG_INFO, "qqmui-node", buffer);
+        __android_log_write(ANDROID_LOG_INFO, "qmplay-node", buffer);
       }
       close(fd);
     }).detach();

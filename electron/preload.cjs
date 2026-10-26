@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld(
-	"interludeDesktop",
+	"qmplayDesktop",
 	Object.freeze({
 		minimize: () => ipcRenderer.send("window:minimize"),
 		close: () => ipcRenderer.send("window:close"),

@@ -5,18 +5,18 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 export async function prepareAndroidSigning(env = process.env) {
-	assert(env.QQMUI_ANDROID_KEYSTORE_BASE64 && env.QQMUI_ANDROID_KEYSTORE_PASSWORD,
-		"Android releases require QQMUI_ANDROID_KEYSTORE_BASE64 and QQMUI_ANDROID_KEYSTORE_PASSWORD secrets");
-	const encoded = env.QQMUI_ANDROID_KEYSTORE_BASE64.replace(/\s/g, "");
+	assert(env.QMPLAY_ANDROID_KEYSTORE_BASE64 && env.QMPLAY_ANDROID_KEYSTORE_PASSWORD,
+		"Android releases require QMPLAY_ANDROID_KEYSTORE_BASE64 and QMPLAY_ANDROID_KEYSTORE_PASSWORD secrets");
+	const encoded = env.QMPLAY_ANDROID_KEYSTORE_BASE64.replace(/\s/g, "");
 	assert(/^[A-Za-z\d+/]+={0,2}$/.test(encoded) && encoded.length % 4 === 0, "Invalid Android keystore base64");
 	const bytes = Buffer.from(encoded, "base64");
 	assert(bytes.length >= 256 && bytes[0] === 0x30 && bytes.toString("base64") === encoded, "Expected a base64 PKCS12 keystore");
-	const directory = await mkdtemp(path.join(path.resolve(env.RUNNER_TEMP || os.tmpdir()), "qqmui-signing-"));
+	const directory = await mkdtemp(path.join(path.resolve(env.RUNNER_TEMP || os.tmpdir()), "qmplay-signing-"));
 	const filename = path.join(directory, "keystore.p12");
 	try {
 		await writeFile(filename, bytes, { mode: 0o600, flag: "wx" });
 		if (env.GITHUB_ENV) await appendFile(env.GITHUB_ENV,
-			`QQMUI_ANDROID_KEYSTORE=${filename}\nQQMUI_ANDROID_SIGNING_DIR=${directory}\n`);
+			`QMPLAY_ANDROID_KEYSTORE=${filename}\nQMPLAY_ANDROID_SIGNING_DIR=${directory}\n`);
 		return { directory, filename };
 	} catch (error) {
 		await rm(directory, { recursive: true, force: true });
@@ -25,10 +25,10 @@ export async function prepareAndroidSigning(env = process.env) {
 }
 
 export async function cleanupAndroidSigning(env = process.env) {
-	if (!env.QQMUI_ANDROID_SIGNING_DIR) return;
-	const directory = path.resolve(env.QQMUI_ANDROID_SIGNING_DIR);
+	if (!env.QMPLAY_ANDROID_SIGNING_DIR) return;
+	const directory = path.resolve(env.QMPLAY_ANDROID_SIGNING_DIR);
 	assert.equal(path.dirname(directory), path.resolve(env.RUNNER_TEMP || os.tmpdir()), "Signing directory must be inside runner temp");
-	assert(path.basename(directory).startsWith("qqmui-signing-"), "Refusing to remove an unrelated directory");
+	assert(path.basename(directory).startsWith("qmplay-signing-"), "Refusing to remove an unrelated directory");
 	await rm(directory, { recursive: true, force: true });
 }
 

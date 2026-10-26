@@ -1,4 +1,4 @@
-// Only dependencies of the endpoints used by qqmui belong in this service bundle.
+// Only dependencies of the endpoints used by qmplay belong in this service bundle.
 import getHotKey from './search/getHotKey';
 import getSmartbox from './search/getSmartbox';
 import getSingerStarNum from './singers/getSingerStarNum';

@@ -1,9 +1,9 @@
 {
-	"name": "qqmui",
-	"productName": "qqmui",
+	"name": "qmplay",
+	"productName": "qmplay",
 	"version": "1.0.0",
 	"private": true,
-	"description": "qqmui (qq music ui), a minimal QQ Music player for Linux, Windows and Android.",
+	"description": "qmplay, a minimal QQ Music player for Linux, Windows and Android.",
 	"type": "module",
 	"main": "electron/main.cjs",
 	"packageManager": "pnpm@11.25.0",
@@ -48,14 +48,14 @@
 		"@types/lodash.get": "^4.4.9"
 	},
 	"build": {
-		"appId": "app.qqmui",
-		"productName": "qqmui",
+		"appId": "app.qmplay",
+		"productName": "qmplay",
 		"directories": {
 			"output": "release"
 		},
 		"files": [
 			"dist/**/*",
-			"electron/**/*",
+			"electron/*.cjs",
 			"package.json",
 			"THIRD_PARTY_NOTICES.md",
 			"licenses/**/*"
@@ -71,7 +71,7 @@
 			"perMachine": false,
 			"allowToChangeInstallationDirectory": true,
 			"installerLanguages": ["zh_CN", "en_US"],
-			"shortcutName": "qqmui",
+			"shortcutName": "qmplay",
 			"deleteAppDataOnUninstall": false
 		},
 		"portable": {
@@ -86,12 +86,12 @@
 			],
 			"category": "Audio",
 			"icon": "assets/icon.png",
-			"maintainer": "qqmui",
+			"maintainer": "qmplay",
 			"artifactName": "${name}-${version}-${arch}.${ext}",
 			"synopsis": "Minimal QQ Music player for Linux",
 			"desktop": {
 				"entry": {
-					"Name": "qqmui",
+					"Name": "qmplay",
 					"Comment": "QQ Music player",
 					"Categories": "AudioVideo;Audio;Player;"
 				}
@@ -111,5 +111,5 @@
 	"bugs": {
 		"url": "https://github.com/eric-wenyv/qmui/issues"
 	},
-	"desktopName": "qqmui.desktop"
+	"desktopName": "qmplay.desktop"
 }

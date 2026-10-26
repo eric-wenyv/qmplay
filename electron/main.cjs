@@ -18,10 +18,22 @@ const { fetchArtwork } = require("./artwork.cjs");
 const { API_ORIGIN, proxyApi } = require("./api.cjs");
 const { authCookieHeader, storeAuthCookies } = require("./auth-cookies.cjs");
 
-// Keep the established origin so existing local playback and favorite data remain accessible.
+app.setName("qmplay");
+if (process.platform === "win32") app.setAppUserModelId("app.qmplay");
+// Reuse an existing desktop profile to preserve login cookies and local playback state.
+const appData = app.getPath("appData");
+const userData = ["qmplay", "qqmui", "Interlude", "间奏", "interlude-player"]
+	.map((name) => path.join(appData, name))
+	.find((directory) => fs.existsSync(directory)) || path.join(appData, "qmplay");
+fs.mkdirSync(userData, { recursive: true });
+app.setPath("userData", userData);
+app.setPath("sessionData", userData);
+// Existing profiles keep their origin so their local playback and favorite data remain accessible.
+const scheme = path.basename(userData) === "qmplay" ? "qmplay" : "interlude";
+const appOrigin = `${scheme}://app`;
 protocol.registerSchemesAsPrivileged([
 	{
-		scheme: "interlude",
+		scheme,
 		privileges: {
 			standard: true,
 			secure: true,
@@ -30,23 +42,13 @@ protocol.registerSchemesAsPrivileged([
 		},
 	},
 ]);
-app.setName("qqmui");
-if (process.platform === "win32") app.setAppUserModelId("app.qqmui");
-// Reuse an existing desktop profile to preserve login cookies and local playback state.
-const appData = app.getPath("appData");
-const userData = ["qqmui", "Interlude", "间奏", "interlude-player"]
-	.map((name) => path.join(appData, name))
-	.find((directory) => fs.existsSync(directory)) || path.join(appData, "qqmui");
-fs.mkdirSync(userData, { recursive: true });
-app.setPath("userData", userData);
-app.setPath("sessionData", userData);
 const legacyAuthDirectory = path.join(os.homedir(), ".local/share/qq-music-api/auth");
 const backend = createBackendController({
 	entry: path.join(__dirname, "../dist/backend/server.cjs"),
 	authDirectory: process.env.QQ_MUSIC_AUTH_DIR ||
 		(fs.existsSync(legacyAuthDirectory) ? legacyAuthDirectory : path.join(userData, "auth")),
 	spawn: (entry, env) => utilityProcess.fork(entry, [], {
-		env, cwd: userData, stdio: "pipe", serviceName: "qqmui Music API",
+		env, cwd: userData, stdio: "pipe", serviceName: "qmplay Music API",
 	}),
 });
 let window;
@@ -64,7 +66,7 @@ function createWindow() {
 		minHeight: 520,
 		backgroundColor: "#00000000",
 		transparent: true,
-		title: "qqmui · qq music ui",
+		title: "qmplay · QQ 音乐播放器",
 		frame: false,
 		show: false,
 		autoHideMenuBar: true,
@@ -85,7 +87,7 @@ function createWindow() {
 	window.webContents.session.setPermissionRequestHandler(
 		(_contents, _permission, callback) => callback(false),
 	);
-	window.loadURL("interlude://app/index.html");
+	window.loadURL(`${appOrigin}/index.html`);
 	window.on("close", (event) => {
 		if (quitting) return;
 		event.preventDefault();
@@ -109,7 +111,7 @@ function showWindow() {
 
 function createTray() {
 	tray = new Tray(path.join(rendererRoot, "assets/icon.png"));
-	tray.setToolTip("qqmui");
+	tray.setToolTip("qmplay");
 	tray.setContextMenu(Menu.buildFromTemplate([
 		{ label: "显示", click: showWindow },
 		{ label: "退出", click: () => app.quit() },
@@ -122,7 +124,7 @@ if (!hasInstanceLock) app.quit();
 else app.whenReady().then(async () => {
 	// A failed launch remains retryable through the existing authentication error UI.
 	await backend.start().catch(() => {});
-	protocol.handle("interlude", async (request) => {
+	protocol.handle(scheme, async (request) => {
 		const url = new URL(request.url);
 		if (url.host !== "app")
 			return new Response("Not found", { status: 404 });
@@ -132,14 +134,14 @@ else app.whenReady().then(async () => {
 				const response = await proxyApi(url.pathname.slice(4), url.search, {
 					method: request.method,
 					connection: await backend.start(),
-					headers: { "Content-Type": "application/json", Origin: "interlude://app",
+					headers: { "Content-Type": "application/json", Origin: appOrigin,
 						Cookie: authCookieHeader(cookies) },
 					body: request.method === "POST" ? await request.text() : undefined,
 				});
 				await storeAuthCookies(session.defaultSession.cookies, response.headers);
 				const headers = new Headers(response.headers);
 				headers.delete("set-cookie");
-				headers.delete("x-qqmui-token");
+				headers.delete("x-qmplay-token");
 				headers.set("Cache-Control", "no-store");
 				return new Response(response.body, { status: response.status, headers });
 			} catch {

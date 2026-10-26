@@ -35,7 +35,7 @@ async function desktop(jar, replies, profiles = []) {
     }
     once() {}
     on() {}
-    loadURL() {}
+    loadURL(url) { identity.url = url; }
   }
   const electron = {
     app: {
@@ -51,8 +51,9 @@ async function desktop(jar, replies, profiles = []) {
       on() {},
     },
     protocol: {
-      registerSchemesAsPrivileged() {},
-      handle: (_scheme, action) => {
+      registerSchemesAsPrivileged(schemes) { identity.scheme = schemes[0].scheme; },
+      handle: (scheme, action) => {
+        assert.equal(scheme, identity.scheme);
         handler = action;
       },
     },
@@ -101,19 +102,26 @@ async function desktop(jar, replies, profiles = []) {
   await Promise.all(tasks);
   return { handler, requests, identity };
 }
-test('qqmui reuses existing desktop profiles after the rename and prefers its own profile when present', async () => {
+test('qmplay reuses existing desktop profiles after the rename and prefers its own profile when present', async () => {
   for (const [profiles, expected] of [
-    [[], 'qqmui'],
+    [[], 'qmplay'],
+    [['qqmui'], 'qqmui'],
     [['Interlude'], 'Interlude'],
     [['间奏'], '间奏'],
     [['interlude-player'], 'interlude-player'],
+    [['qmplay', 'Interlude'], 'qmplay'],
+    [['qmplay', 'qqmui'], 'qmplay'],
     [['qqmui', 'Interlude'], 'qqmui'],
   ]) {
-    const { identity } = await desktop(new Map(), [], profiles);
-    assert.equal(identity.name, 'qqmui');
-    assert.equal(identity.title, 'qqmui · qq music ui');
+    const { identity, handler, requests } = await desktop(new Map(), [Response.json({})], profiles);
+    assert.equal(identity.name, 'qmplay');
+    assert.equal(identity.title, 'qmplay · QQ 音乐播放器');
     assert.equal(identity.userData, path.join(profileRoot, expected));
     assert.equal(identity.sessionData, identity.userData);
+    assert.equal(identity.scheme, expected === 'qmplay' ? 'qmplay' : 'interlude');
+    assert.equal(identity.url, `${identity.scheme}://app/index.html`);
+    await handler(new Request(`${identity.scheme}://app/api/auth/status`));
+    assert.equal(requests[0][2].headers.Origin, `${identity.scheme}://app`);
   }
 });
 test('desktop stores HttpOnly session cookies in the persistent jar, restores them after restart and never exposes them to the page', async () => {
@@ -121,18 +129,18 @@ test('desktop stores HttpOnly session cookies in the persistent jar, restores th
   const first = await desktop(jar, [
     new Response('{"data":{"state":"authenticated"}}', {
       headers: {
-        'X-QQMUI-Token': 'internal-token-never-exposed',
+        'X-QMPLAY-Token': 'internal-token-never-exposed',
         'Set-Cookie':
           `qq_music_session=opaque-token; Expires=${new Date(Date.now() + 2592000000).toUTCString()}; HttpOnly; SameSite=Strict; Path=/`,
       },
     }),
   ]);
   const response = await first.handler(
-    new Request('interlude://app/api/auth/qr/check', { method: 'POST', body: '{"id":"qr"}' }),
+    new Request('qmplay://app/api/auth/qr/check', { method: 'POST', body: '{"id":"qr"}' }),
   );
   assert.equal(response.status, 200);
   assert.equal(response.headers.has('set-cookie'), false);
-  assert.equal(response.headers.has('x-qqmui-token'), false);
+  assert.equal(response.headers.has('x-qmplay-token'), false);
   assert.equal(jar.get('qq_music_session').httpOnly, true);
   assert.equal(jar.get('qq_music_session').sameSite, 'strict');
   assert(jar.get('qq_music_session').expirationDate > Date.now() / 1000);
@@ -142,13 +150,13 @@ test('desktop stores HttpOnly session cookies in the persistent jar, restores th
       headers: { 'Set-Cookie': 'qq_music_session=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/' },
     }),
   ]);
-  await restored.handler(new Request('interlude://app/api/auth/status'));
+  await restored.handler(new Request('qmplay://app/api/auth/status'));
   assert.match(restored.requests[0][2].headers.Cookie, /qq_music_session=opaque-token/);
-  assert.equal(restored.requests[0][2].headers.Origin, 'interlude://app');
+  assert.equal(restored.requests[0][2].headers.Origin, 'qmplay://app');
   assert.equal(restored.requests[0][2].connection.origin, 'http://127.0.0.1:43210');
   assert.equal(restored.requests[0][2].connection.token.length, 64);
   await restored.handler(
-    new Request('interlude://app/api/auth/logout', { method: 'POST', body: '{}' }),
+    new Request('qmplay://app/api/auth/logout', { method: 'POST', body: '{}' }),
   );
   assert.equal(jar.has('qq_music_session'), false);
 });
@@ -169,7 +177,7 @@ test('desktop keeps the QR owner through multiple polls and stores the confirmed
     ] }),
   ];
   const app = await desktop(jar, replies);
-  const send = pathname => app.handler(new Request(`interlude://app/api${pathname}`, { method: 'POST', body: '{}' }));
+  const send = pathname => app.handler(new Request(`qmplay://app/api${pathname}`, { method: 'POST', body: '{}' }));
   const created = await send('/auth/qr');
   assert.equal((await created.json()).data.id, 'qr');
   assert.equal(jar.get('qq_music_challenge').expirationDate, Date.parse(expires) / 1000);

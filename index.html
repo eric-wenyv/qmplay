@@ -4,15 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#665e50" />
-    <meta name="description" content="qqmui（qq music ui），面向 Linux 的极简 QQ 音乐播放器。" />
+    <meta name="description" content="qmplay，面向 Linux、Windows 和 Android 的极简 QQ 音乐播放器。" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' https: http:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
-    <title>qqmui · qq music ui</title>
+    <title>qmplay · QQ 音乐播放器</title>
     <link rel="icon" type="image/svg+xml" href="./assets/icon.svg" />
     <link rel="stylesheet" href="./src/styles.css" />
     <script type="module" src="./src/app.js"></script>
   </head>
   <body class="auth-gated">
-    <main class="player" aria-label="qqmui 音乐播放器">
+    <main class="player" aria-label="qmplay 音乐播放器">
       <div id="mode-backdrop" class="mode-backdrop" hidden></div>
       <header class="topbar">
         <div class="mode-control" data-open="false">
@@ -33,7 +33,7 @@
       </header>
 
       <section id="auth-view" class="auth-view" aria-label="QQ 音乐登录">
-        <h1>qqmui</h1>
+        <h1>qmplay</h1>
         <p class="auth-caption">登录 QQ 音乐，同步喜欢的音乐</p>
         <img id="auth-qr" width="180" height="180" alt="QQ 登录二维码" hidden />
         <p id="auth-message" role="status" aria-live="polite">正在恢复登录…</p>
@@ -48,7 +48,7 @@
             <span class="cover-index" aria-hidden="true">01 — FM</span>
           </div>
           <div class="track-meta">
-            <div class="track-copy"><h1 id="track-title">qqmui</h1><p id="track-artist"><span id="track-singer">让音乐慢慢响起</span><span id="track-album"></span></p></div>
+            <div class="track-copy"><h1 id="track-title">qmplay</h1><p id="track-artist"><span id="track-singer">让音乐慢慢响起</span><span id="track-album"></span></p></div>
             <button id="like-toggle" class="icon-button like-button" type="button" aria-label="喜欢这首歌" aria-pressed="false" data-tip="喜欢"><span class="icon-slot" data-icon="heart"></span></button>
           </div>
         </div>

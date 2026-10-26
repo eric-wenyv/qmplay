@@ -14,7 +14,7 @@ const root = fileURLToPath(new URL("../../", import.meta.url));
 export async function smokeBackend(executable, entry, authDirectory) {
 	const token = randomBytes(32).toString("hex");
 	const child = fork(entry, [], { execPath: executable, stdio: ["ignore", "pipe", "pipe", "ipc"],
-		env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", PORT: "0", QQMUI_API_TOKEN: token,
+		env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", PORT: "0", QMPLAY_API_TOKEN: token,
 			QQ_MUSIC_AUTH_DIR: authDirectory, LOG_LEVEL: "silent" } });
 	child.stdout.resume();
 	child.stderr.resume();
@@ -29,9 +29,9 @@ export async function smokeBackend(executable, entry, authDirectory) {
 		assert.equal(message.type, "ready");
 		assert.match(message.origin, /^http:\/\/127\.0\.0\.1:\d+$/);
 		const request = (pathname, authenticated = true) => fetch(message.origin + pathname, {
-			headers: authenticated ? { "X-QQMUI-Token": token } : {}, signal: AbortSignal.timeout(5000),
+			headers: authenticated ? { "X-QMPLAY-Token": token } : {}, signal: AbortSignal.timeout(5000),
 		});
-		assert.equal((await (await request("/health")).json()).service, "qqmui-api");
+		assert.equal((await (await request("/health")).json()).service, "qmplay-api");
 		assert.equal((await request("/health", false)).status, 403);
 		const auth = await request("/auth/status");
 		assert.equal(auth.status, 200);
@@ -61,8 +61,8 @@ export async function verifyDesktop(directory, arch = process.arch) {
 	const dependencies = JSON.parse(extract("dist/backend/dependencies.json"));
 	for (const name of ["koa", "axios", "zod", "@jixun/qmweb-sign"])
 		assert(dependencies.some((dependency) => dependency.name === name), `Missing dependency notice: ${name}`);
-	const targetPlatform = existsSync(path.join(directory, "qqmui.exe")) ? "win32" : "linux";
-	const executable = path.join(directory, targetPlatform === "win32" ? "qqmui.exe" : "qqmui");
+	const targetPlatform = existsSync(path.join(directory, "qmplay.exe")) ? "win32" : "linux";
+	const executable = path.join(directory, targetPlatform === "win32" ? "qmplay.exe" : "qmplay");
 	const file = await open(executable, "r");
 	try {
 		const header = Buffer.alloc(64);
@@ -82,7 +82,7 @@ export async function verifyDesktop(directory, arch = process.arch) {
 		console.log(`${targetPlatform}/${arch} archive, executable and dependency notices verified; runtime smoke requires a matching host.`);
 		return;
 	}
-	const temporary = await mkdtemp(path.join(os.tmpdir(), "qqmui-package-"));
+	const temporary = await mkdtemp(path.join(os.tmpdir(), "qmplay-package-"));
 	try {
 		const entry = path.join(temporary, "server.cjs");
 		await writeFile(entry, extract("dist/backend/server.cjs"));

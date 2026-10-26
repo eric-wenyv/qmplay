@@ -9,6 +9,27 @@ const memory = () => {
     setItem: (key, value) => values.set(key, value),
   };
 };
+test('renaming preserves cached accounts and completed migrations under the qmplay key', () => {
+  const storage = memory();
+  const previous = {
+    accounts: { '12345': [track('r1')], '99999': [track('r2')] },
+    migration: { owner: '12345', tracks: [track('l3')], done: true },
+  };
+  storage.setItem('interlude-account-favorites-v1', JSON.stringify(previous));
+  let snapshot;
+  const sync = new FavoriteSync({ storage, onChange: (value) => { snapshot = value; } });
+  sync.connect('12345');
+  assert.deepEqual(snapshot, [track('r1')]);
+  sync.connect('99999');
+  assert.deepEqual(snapshot, [track('r2')]);
+  assert.deepEqual(JSON.parse(storage.getItem('qmplay-account-favorites-v1')), previous);
+  sync.state.accounts['12345'] = [track('r4')];
+  sync.persist();
+  const restarted = new FavoriteSync({ storage, onChange: (value) => { snapshot = value; } });
+  restarted.connect('12345');
+  assert.deepEqual(snapshot, [track('r4')]);
+  assert.equal(restarted.state.migration.done, true);
+});
 test('merges legacy likes once into the first account and keeps other accounts isolated', async () => {
   const storage = memory(),
     writes = [],

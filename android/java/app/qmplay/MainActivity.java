@@ -1,4 +1,4 @@
-package app.qqmui;
+package app.qmplay;
 
 import android.app.Activity;
 import android.content.Intent;
@@ -50,7 +50,7 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(Color.rgb(102, 94, 80));
         getWindow().setNavigationBarColor(Color.rgb(52, 61, 60));
         TextView loading = new TextView(this);
-        loading.setText("qqmui\n\n正在打开音乐…");
+        loading.setText("qmplay\n\n正在打开音乐…");
         loading.setTextColor(Color.WHITE);
         loading.setGravity(android.view.Gravity.CENTER);
         setContentView(loading);
@@ -81,7 +81,7 @@ public class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSupportMultipleWindows(false);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
-        web.addJavascriptInterface(new AndroidBridge(), "qqmuiAndroid");
+        web.addJavascriptInterface(new AndroidBridge(), "qmplayAndroid");
         web.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 return !request.getUrl().toString().startsWith(MusicService.origin() + "/");
@@ -106,11 +106,11 @@ public class MainActivity extends Activity {
         if (activity == null || activity.web == null) return;
         if (!java.util.Arrays.asList("play", "pause", "previous", "next").contains(action)) return;
         activity.runOnUiThread(() -> activity.web.evaluateJavascript(
-            "window.dispatchEvent(new CustomEvent('qqmui-media',{detail:'" + action + "'}))", null));
+            "window.dispatchEvent(new CustomEvent('qmplay-media',{detail:'" + action + "'}))", null));
     }
 
     private void handleBack() {
-        if (web != null) web.evaluateJavascript("window.dispatchEvent(new Event('qqmui-back'))", null);
+        if (web != null) web.evaluateJavascript("window.dispatchEvent(new Event('qmplay-back'))", null);
         else moveTaskToBack(true);
     }
     @Override public void onBackPressed() { handleBack(); }
@@ -121,7 +121,7 @@ public class MainActivity extends Activity {
     @Override protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
         if (current.get() == this) current.clear();
-        if (web != null) { web.removeJavascriptInterface("qqmuiAndroid"); web.destroy(); }
+        if (web != null) { web.removeJavascriptInterface("qmplayAndroid"); web.destroy(); }
         super.onDestroy();
     }
 }

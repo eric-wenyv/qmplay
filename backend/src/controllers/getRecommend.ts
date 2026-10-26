@@ -1,7 +1,7 @@
 import type { Context } from 'koa';
 import services from '../services';
 
-// qqmui only consumes new_song; avoid requesting unused playlists, charts or albums.
+// qmplay only consumes new_song; avoid requesting unused playlists, charts or albums.
 export default async (ctx: Context) => {
   const data = {
     comm: { ct: 24 },

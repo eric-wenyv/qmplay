@@ -10,7 +10,7 @@ import { validateMetadata, verifyChecksums } from "./release.mjs";
 const root = fileURLToPath(new URL("../../", import.meta.url));
 
 export function verifyAndroidBadging(badging, metadata, debug) {
-	assert(badging.includes("package: name='app.qqmui'"));
+	assert(badging.includes("package: name='app.qmplay'"));
 	assert(badging.includes(`versionName='${metadata.version}'`));
 	assert(badging.includes(`versionCode='${metadata.androidVersionCode}'`));
 	// Recent aapt2 reports minSdkVersion; older versions called this sdkVersion.
@@ -23,7 +23,7 @@ export function verifyAndroidBadging(badging, metadata, debug) {
 export async function verifyAndroid(debug = false) {
 	const pkg = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 	const metadata = validateMetadata(pkg, await readFile(path.join(root, "android/AndroidManifest.xml"), "utf8"));
-	const name = `qqmui-${pkg.version}-arm64${debug ? "-debug" : ""}.apk`;
+	const name = `qmplay-${pkg.version}-arm64${debug ? "-debug" : ""}.apk`;
 	const apk = path.join(root, "release", name);
 	await verifyChecksums(path.dirname(apk), name + ".sha256", [name]);
 	const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || path.join(os.homedir(), "Android/Sdk");
@@ -37,7 +37,7 @@ export async function verifyAndroid(debug = false) {
 	const entries = execFileSync("unzip", ["-Z1", apk], { encoding: "utf8" }).trim().split(/\r?\n/);
 	const extract = (name) => execFileSync("unzip", ["-p", apk, name], { maxBuffer: 128 * 1024 * 1024 });
 	assert.equal(extract("classes.dex").toString("ascii", 0, 4), "dex\n");
-	for (const name of ["libnode.so", "libqqmui.so", "libc++_shared.so"]) {
+	for (const name of ["libnode.so", "libqmplay.so", "libc++_shared.so"]) {
 		const header = extract("lib/arm64-v8a/" + name);
 		assert.equal(header.toString("ascii", 0, 4), "\x7fELF");
 		assert.equal(header.readUInt16LE(18), 183, `${name} must be ARM64`);
@@ -45,7 +45,7 @@ export async function verifyAndroid(debug = false) {
 	assert(entries.filter((name) => name.endsWith(".so")).every((name) => name.startsWith("lib/arm64-v8a/")));
 	const runtime = extract("assets/runtime.zip");
 	assert.equal(createHash("sha256").update(runtime).digest("hex"), extract("assets/runtime.sha256").toString().trim());
-	const temporary = await mkdtemp(path.join(os.tmpdir(), "qqmui-apk-"));
+	const temporary = await mkdtemp(path.join(os.tmpdir(), "qmplay-apk-"));
 	try {
 		const filename = path.join(temporary, "runtime.zip");
 		await writeFile(filename, runtime);

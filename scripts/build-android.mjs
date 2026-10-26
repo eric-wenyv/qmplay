@@ -73,9 +73,9 @@ await cp(path.join(toolchain, "sysroot/usr/lib/aarch64-linux-android/libc++_shar
 await run(path.join(toolchain, "bin/aarch64-linux-android26-clang++"), [
 	"-shared", "-fPIC", "-std=c++17", "-O2", "-Wl,-z,max-page-size=16384",
 	"-I" + path.join(runtimeDirectory, "include/node"), path.join(root, "android/native/runtime.cpp"),
-	"-L" + native, "-lnode", "-llog", "-o", path.join(native, "libqqmui.so"),
+	"-L" + native, "-lnode", "-llog", "-o", path.join(native, "libqmplay.so"),
 ]);
-await run(path.join(toolchain, "bin/llvm-strip"), ["--strip-unneeded", path.join(native, "libqqmui.so")]);
+await run(path.join(toolchain, "bin/llvm-strip"), ["--strip-unneeded", path.join(native, "libqmplay.so")]);
 
 const res = path.join(output, "res");
 await cp(path.join(root, "android/res"), res, { recursive: true });
@@ -101,21 +101,21 @@ await run(path.join(tools, "d8"), ["--lib", androidJar, "--min-api", "26", "--ou
 await run("zip", ["-q", "-r", unsigned, "assets", "lib", "classes.dex"], staging);
 const aligned = path.join(output, "aligned.apk");
 await run(path.join(tools, "zipalign"), ["-f", "-p", "4", unsigned, aligned]);
-const keystore = process.env.QQMUI_ANDROID_KEYSTORE || path.join(os.homedir(), ".local/share/qqmui/android-signing.p12");
-const password = process.env.QQMUI_ANDROID_KEYSTORE_PASSWORD || "android";
-const alias = process.env.QQMUI_ANDROID_KEY_ALIAS || "qqmui";
-process.env.QQMUI_SIGN_PASSWORD = password;
-process.env.QQMUI_SIGN_KEY_PASSWORD = process.env.QQMUI_ANDROID_KEY_PASSWORD || password;
+const keystore = process.env.QMPLAY_ANDROID_KEYSTORE || path.join(os.homedir(), ".local/share/qmplay/android-signing.p12");
+const password = process.env.QMPLAY_ANDROID_KEYSTORE_PASSWORD || "android";
+const alias = process.env.QMPLAY_ANDROID_KEY_ALIAS || "qmplay";
+process.env.QMPLAY_SIGN_PASSWORD = password;
+process.env.QMPLAY_SIGN_KEY_PASSWORD = process.env.QMPLAY_ANDROID_KEY_PASSWORD || password;
 if (!await exists(keystore)) {
-	if (process.env.QQMUI_ANDROID_KEYSTORE) throw new Error("Configured Android keystore does not exist");
+	if (process.env.QMPLAY_ANDROID_KEYSTORE) throw new Error("Configured Android keystore does not exist");
 	await mkdir(path.dirname(keystore), { recursive: true, mode: 0o700 });
-	await run("keytool", ["-genkeypair", "-keystore", keystore, "-storetype", "PKCS12", "-storepass:env", "QQMUI_SIGN_PASSWORD",
-		"-alias", alias, "-keyalg", "RSA", "-keysize", "3072", "-validity", "10000", "-dname", "CN=qqmui local Android build"]);
+	await run("keytool", ["-genkeypair", "-keystore", keystore, "-storetype", "PKCS12", "-storepass:env", "QMPLAY_SIGN_PASSWORD",
+		"-alias", alias, "-keyalg", "RSA", "-keysize", "3072", "-validity", "10000", "-dname", "CN=qmplay local Android build"]);
 }
 await mkdir(path.join(root, "release"), { recursive: true });
-const apk = path.join(root, `release/qqmui-${manifest.version}-arm64${debug ? "-debug" : ""}.apk`);
+const apk = path.join(root, `release/qmplay-${manifest.version}-arm64${debug ? "-debug" : ""}.apk`);
 await run(path.join(tools, "apksigner"), ["sign", "--ks", keystore, "--ks-key-alias", alias,
-	"--ks-pass", "env:QQMUI_SIGN_PASSWORD", "--key-pass", "env:QQMUI_SIGN_KEY_PASSWORD",
+	"--ks-pass", "env:QMPLAY_SIGN_PASSWORD", "--key-pass", "env:QMPLAY_SIGN_KEY_PASSWORD",
 	"--v4-signing-enabled", "false", "--out", apk, aligned]);
 await run(path.join(tools, "apksigner"), ["verify", "--verbose", apk]);
 await writeFile(apk + ".sha256", `${createHash("sha256").update(await readFile(apk)).digest("hex")}  ${path.basename(apk)}\n`);
@@ -123,5 +123,5 @@ console.log(`Android APK: ${apk}`);
 if (process.argv.includes("--install")) {
 	const adb = path.join(sdk, "platform-tools/adb");
 	await run(adb, ["install", "-r", apk]);
-	await run(adb, ["shell", "am", "start", "-n", "app.qqmui/.MainActivity"]);
+	await run(adb, ["shell", "am", "start", "-n", "app.qmplay/.MainActivity"]);
 }

@@ -43,7 +43,7 @@ async function localApi(action, token = 'local-test-token') {
   const origin = `http://127.0.0.1:${server.address().port}`;
   const request = (pathname, options = {}) => fetch(`${origin}${pathname}`, {
     ...options,
-    headers: { 'X-QQMUI-Token': token, ...options.headers },
+    headers: { 'X-QMPLAY-Token': token, ...options.headers },
   });
   try { await action(request, origin); }
   finally {
@@ -66,7 +66,7 @@ test('embedded API rejects unrelated interfaces and requires its process token b
     assert.equal((await fetch(`${origin}/health`)).status, 403);
     assert.equal((await fetch(`${origin}/auth/qr`, json({}))).status, 403);
     const health = await request('/health');
-    assert.deepEqual(await health.json(), { service: 'qqmui-api', version: 1 });
+    assert.deepEqual(await health.json(), { service: 'qmplay-api', version: 1 });
     for (const pathname of ['/explorer', '/explorer/metadata', '/getTopLists', '/getMv', '/user/setCookie', '/getRadioTracks/1'])
       assert.equal((await request(pathname)).status, 404, pathname);
     assert.equal((await request('/getLyric', json({}))).status, 405);
@@ -74,6 +74,8 @@ test('embedded API rejects unrelated interfaces and requires its process token b
     assert.equal((await request('/getSingerHotsong')).status, 400);
     assert.equal((await request('/getLyric')).status, 400);
     assert.equal((await request('/auth/status')).status, 200);
+    for (const Origin of ['qmplay://app', 'interlude://app'])
+      assert.equal((await request('/auth/status', { headers: { Origin } })).status, 200);
     assert.equal((await request('/user/favorites')).status, 401);
     const invalid = await request('/auth/qr/check', json({ id: 'invalid' }));
     assert.equal(invalid.status, 400);
@@ -336,7 +338,7 @@ test('standalone embedded process announces its ephemeral loopback address and s
   await build({ entryPoints: [path.join(root, 'backend/src/server.ts')], outfile: serverFile,
     bundle: true, packages: 'external', platform: 'node', format: 'cjs', target: 'node22' });
   const child = fork(serverFile, [], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
-    env: { ...process.env, PORT: '0', QQMUI_API_TOKEN: 'process-test-token' } });
+    env: { ...process.env, PORT: '0', QMPLAY_API_TOKEN: 'process-test-token' } });
   try {
     const result = await Promise.race([
       once(child, 'message').then(([message]) => message),
@@ -345,7 +347,7 @@ test('standalone embedded process announces its ephemeral loopback address and s
     ]);
     assert.equal(result.type, 'ready');
     assert.match(result.origin, /^http:\/\/127\.0\.0\.1:\d+$/);
-    const health = await fetch(`${result.origin}/health`, { headers: { 'X-QQMUI-Token': 'process-test-token' } });
+    const health = await fetch(`${result.origin}/health`, { headers: { 'X-QMPLAY-Token': 'process-test-token' } });
     assert.equal(health.status, 200);
     const stopped = once(child, 'exit');
     child.disconnect();

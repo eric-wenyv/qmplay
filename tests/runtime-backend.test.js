@@ -7,7 +7,7 @@ function fixture(options = {}) {
   const children = [], environments = [];
   const controller = lifecycle.createBackendController({
     entry: '/application/dist/backend/server.cjs',
-    authDirectory: '/profiles/qqmui/auth',
+    authDirectory: '/profiles/qmplay/auth',
     env: { EXISTING: 'preserved', PORT: '3200' },
     timeout: 100,
     spawn: (entry, env) => {
@@ -28,13 +28,13 @@ test('backend start waits for trusted readiness and shares one child among concu
   const first = controller.start(), second = controller.start();
   assert.equal(children.length, 1);
   assert.equal(environments[0].PORT, '0');
-  assert.equal(environments[0].QQ_MUSIC_AUTH_DIR, '/profiles/qqmui/auth');
+  assert.equal(environments[0].QQ_MUSIC_AUTH_DIR, '/profiles/qmplay/auth');
   assert.equal(environments[0].EXISTING, 'preserved');
-  assert.match(environments[0].QQMUI_API_TOKEN, /^[a-f0-9]{64}$/);
+  assert.match(environments[0].QMPLAY_API_TOKEN, /^[a-f0-9]{64}$/);
   children[0].emit('message', { type: 'ready', origin: 'http://127.0.0.1:43210' });
   const connection = await first;
   assert.deepEqual(await second, connection);
-  assert.equal(connection.token, environments[0].QQMUI_API_TOKEN);
+  assert.equal(connection.token, environments[0].QMPLAY_API_TOKEN);
   assert.equal(await controller.start(), connection);
 });
 test('backend crash starts a fresh private child on retry without changing authentication storage', async t => {

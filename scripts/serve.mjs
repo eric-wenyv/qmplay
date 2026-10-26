@@ -114,7 +114,7 @@ server.on("error", (error) => {
 	backend.stop();
 });
 server.listen(port, "127.0.0.1", () =>
-	console.log(`qqmui: http://127.0.0.1:${port}`),
+	console.log(`qmplay: http://127.0.0.1:${port}`),
 );
 for (const signal of ["SIGINT", "SIGTERM"])
 	process.once(signal, () => { server.closeAllConnections(); server.close(); backend.stop(); });

@@ -29,7 +29,7 @@ async function bundledNotices(metafile, outdir) {
 	}
 	const sections = [
 		"# Bundled backend dependency notices",
-		"Generated from the actual esbuild input graph. These notices apply to the bundled third-party components, not to all qqmui source code.",
+		"Generated from the actual esbuild input graph. These notices apply to the bundled third-party components, not to all qmplay source code.",
 		await readFile(path.join(root, "THIRD_PARTY_NOTICES.md"), "utf8"),
 	];
 	const inventory = [];

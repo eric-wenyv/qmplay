@@ -7,12 +7,12 @@ import { logger } from './util/logger';
 
 export { API_PATHS } from './routes/router';
 
-export function createApp({ token = process.env.QQMUI_API_TOKEN || '' } = {}) {
+export function createApp({ token = process.env.QMPLAY_API_TOKEN || '' } = {}) {
   const app = new Koa();
   app.use(async (ctx, next) => {
     ctx.set('Cache-Control', 'no-store');
     if (token) {
-      const supplied = Buffer.from(ctx.get('X-QQMUI-Token'));
+      const supplied = Buffer.from(ctx.get('X-QMPLAY-Token'));
       const expected = Buffer.from(token);
       if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
         ctx.status = 403;
@@ -47,7 +47,7 @@ export function createApp({ token = process.env.QQMUI_API_TOKEN || '' } = {}) {
   app.use(authGuard);
   app.use(async (ctx, next) => {
     if (ctx.path === '/health' && (ctx.method === 'GET' || ctx.method === 'HEAD')) {
-      ctx.body = { service: 'qqmui-api', version: 1 };
+      ctx.body = { service: 'qmplay-api', version: 1 };
       return;
     }
     await next();

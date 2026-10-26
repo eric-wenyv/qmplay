@@ -42,7 +42,7 @@ test("Android runtime protects its local UI and API, bootstraps cookies, and con
     const boot = await request("/bootstrap?token=" + token, { redirect: "manual" });
     assert.equal(boot.status, 302);
     assert.match(boot.headers.get("set-cookie"), /HttpOnly; SameSite=Strict/);
-    const headers = { Cookie: `qqmui_local=${token}` };
+    const headers = { Cookie: `qmplay_local=${token}` };
     assert.match(await (await request("/index.html", { headers })).text(), /Android player/);
     const session = await request("/api/auth/status", { headers });
     assert.equal(session.status, 200);

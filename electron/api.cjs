@@ -27,7 +27,7 @@ async function proxyApi(
   const source = new Headers(headers);
   for (const key of ['cookie', 'content-type', 'origin', 'sec-fetch-site'])
     if (source.has(key)) forwarded.set(key, source.get(key));
-  forwarded.set('X-QQMUI-Token', connection.token);
+  forwarded.set('X-QMPLAY-Token', connection.token);
   return fetcher(`${connection.origin}${pathname}${search}`, {
     method,
     headers: forwarded,

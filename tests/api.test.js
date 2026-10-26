@@ -17,6 +17,23 @@ const track = {
 	pay: { pay_play: 1 },
 };
 const reply = (value) => ({ ok: true, json: async () => value });
+test("desktop requests use the qmplay origin and remain compatible with previous profiles", async (t) => {
+	const previous = Object.getOwnPropertyDescriptor(globalThis, "location");
+	t.after(() => {
+		if (previous) Object.defineProperty(globalThis, "location", previous);
+		else delete globalThis.location;
+	});
+	for (const protocol of ["qmplay:", "interlude:"]) {
+		Object.defineProperty(globalThis, "location", { configurable: true, value: { protocol } });
+		let requested;
+		const api = new QQMusicProvider({ fetcher: async (url) => {
+			requested = url;
+			return reply({ data: { authenticated: false } });
+		} });
+		await api.request("/auth/status");
+		assert.equal(requested, `${protocol}//app/api/auth/status?`);
+	}
+});
 test("normalizes both legacy and current song formats; rejects unusable records and duplicates", () => {
 	const value = normalizeTrack(track);
 	assert.equal(value.id, "mid-a");
