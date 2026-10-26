@@ -1,36 +1,69 @@
-import { validTrack } from './storage.js';
-const cacheKey = 'qmplay-account-favorites-v1';
-const legacyCacheKey = 'interlude-account-favorites-v1';
+import type { StorageLike, Track } from "./contracts.js";
+import { validTrack } from "./storage.js";
+export interface FavoriteSyncOptions {
+  provider: {
+    getFavorites(): Promise<Track[]>;
+    setFavorite(track: Track, liked: boolean): Promise<Track>;
+  };
+  storage?: StorageLike;
+  legacy?: Track[];
+  legacyAccount?: string;
+  onChange?: (tracks: Track[]) => void;
+}
+interface FavoriteCache {
+  accounts: Record<string, Track[]>;
+  migration: { owner: string; tracks: Track[]; done: boolean };
+}
+const record = (value: unknown): Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+const cacheKey = "qmplay-account-favorites-v1";
+const legacyCacheKey = "interlude-account-favorites-v1";
 export class FavoriteSync {
+  readonly provider: FavoriteSyncOptions["provider"];
+  readonly storage: StorageLike;
+  readonly onChange: NonNullable<FavoriteSyncOptions["onChange"]>;
+  epoch = 0;
+  busy = new Set<string>();
+  work: Promise<void> = Promise.resolve();
+  state: FavoriteCache = { accounts: {}, migration: { owner: "", tracks: [], done: false } };
+  storageFailed = false;
+  uin: string | null = null;
   constructor({
     provider,
     storage = globalThis.localStorage,
     legacy = [],
-    legacyAccount = '',
+    legacyAccount = "",
     onChange = () => {},
-  }) {
-    Object.assign(this, { provider, storage, onChange });
-    this.epoch = 0;
-    this.busy = new Set();
-    this.work = Promise.resolve();
-    this.state = { accounts: {}, migration: { owner: '', tracks: [], done: false } };
+  }: FavoriteSyncOptions) {
+    this.provider = provider;
+    this.storage = storage;
+    this.onChange = onChange;
     try {
-      const saved = JSON.parse(storage.getItem(cacheKey) || storage.getItem(legacyCacheKey) || 'null');
+      const saved = record(
+        JSON.parse(storage.getItem(cacheKey) || storage.getItem(legacyCacheKey) || "null"),
+      );
+      const accounts = record(saved.accounts),
+        migration = record(saved.migration);
       if (
-        saved?.accounts &&
+        saved.accounts &&
         !Array.isArray(saved.accounts) &&
-        saved?.migration &&
-        Array.isArray(saved.migration.tracks)
+        saved.migration &&
+        Array.isArray(migration.tracks)
       ) {
         this.state.accounts = Object.fromEntries(
-          Object.entries(saved.accounts)
+          Object.entries(accounts)
             .filter(([uin, tracks]) => /^\d+$/.test(uin) && Array.isArray(tracks))
-            .map(([uin, tracks]) => [uin, tracks.filter(validTrack)]),
+            .map(([uin, tracks]) => [uin, (tracks as unknown[]).filter(validTrack)]),
         );
         this.state.migration = {
-          owner: /^\d+$/.test(saved.migration.owner) ? saved.migration.owner : '',
-          tracks: saved.migration.tracks.filter(validTrack),
-          done: saved.migration.done === true,
+          owner:
+            typeof migration.owner === "string" && /^\d+$/.test(migration.owner)
+              ? migration.owner
+              : "",
+          tracks: migration.tracks.filter(validTrack),
+          done: migration.done === true,
         };
       } else if (legacyAccount) this.state.accounts[legacyAccount] = legacy.filter(validTrack);
       else this.state.migration.tracks = legacy.filter(validTrack);
@@ -49,13 +82,16 @@ export class FavoriteSync {
       return false;
     }
   }
-  enqueue(operation) {
+  enqueue<T>(operation: () => Promise<T>): Promise<T | false> {
     const epoch = this.epoch;
-    const task = this.work.then(() => (epoch === this.epoch ? operation() : false));
-    this.work = task.catch(() => {});
+    const task = this.work.then<T | false>(() => (epoch === this.epoch ? operation() : false));
+    this.work = task.then(
+      () => undefined,
+      () => undefined,
+    );
     return task;
   }
-  connect(uin) {
+  connect(uin: string) {
     this.epoch++;
     this.uin = uin;
     this.busy.clear();
@@ -83,8 +119,8 @@ export class FavoriteSync {
     if (!migration.owner) {
       migration.owner = uin;
       if (!this.persist() && migration.tracks.length) {
-        migration.owner = '';
-        throw new Error('本机无法保存收藏迁移记录，请释放存储空间后重试');
+        migration.owner = "";
+        throw new Error("本机无法保存收藏迁移记录，请释放存储空间后重试");
       }
     }
     if (migration.owner === uin && !migration.done) {
@@ -103,7 +139,7 @@ export class FavoriteSync {
     this.persist();
     this.onChange(this.state.accounts[uin]);
   }
-  async set(track, liked) {
+  async set(track: Track, liked: boolean) {
     if (this.busy.has(track.id)) return Promise.resolve(false);
     this.busy.add(track.id);
     const epoch = this.epoch;
@@ -111,8 +147,8 @@ export class FavoriteSync {
       if (epoch === this.epoch) this.busy.delete(track.id);
     });
   }
-  async performSet(track, liked) {
-    if (!this.uin) throw new Error('请先登录 QQ 音乐');
+  async performSet(track: Track, liked: boolean) {
+    if (!this.uin) throw new Error("请先登录 QQ 音乐");
     const epoch = this.epoch,
       uin = this.uin;
     const confirmed = await this.provider.setFavorite(track, liked);

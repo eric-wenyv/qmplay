@@ -1,5 +1,5 @@
-import { AxiosRequestConfig } from 'axios';
-import { Context } from 'koa';
+import { AxiosRequestConfig } from "axios";
+import { Context } from "koa";
 
 type QueryLikeValue = string | string[] | undefined;
 export type TypedQuery<T extends object> = {
@@ -33,12 +33,12 @@ export interface BaseServiceParams {
 /**
  * U.y.qq.com 域名下的通用请求参数
  */
-export interface BaseUCommonParams extends Omit<BaseServiceParams, 'params'> {}
+export interface BaseUCommonParams extends Omit<BaseServiceParams, "params"> {}
 
 /**
  * C.y.qq.com 域名下的通用请求参数
  */
-export interface BaseYCommonParams extends Omit<BaseServiceParams, 'params'> {
+export interface BaseYCommonParams extends Omit<BaseServiceParams, "params"> {
   /**
    * 请求路径
    */
@@ -66,14 +66,14 @@ export interface BaseServiceResponse<T = any> {
  * 仅用于局部类型表达，不建议直接作为 koa-router handler 的参数类型。
  */
 export interface TypedQueryContext<T extends object> extends Context {
-  query: Context['query'] & TypedQuery<T>;
+  query: Context["query"] & TypedQuery<T>;
 }
 
 /**
  * 带有类型化 Body 参数的 Koa Context
  */
 export interface TypedBodyContext<T extends object> extends Context {
-  request: Context['request'] & {
+  request: Context["request"] & {
     body: T;
   };
 }

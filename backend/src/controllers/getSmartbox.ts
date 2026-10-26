@@ -1,13 +1,13 @@
-import services from '../services';
+import services from "../services";
 
 const { getSmartbox } = services;
 
-import { Context } from 'koa';
+import { Context } from "koa";
 
 export default async (ctx: Context) => {
   const { key } = ctx.query;
   const props = {
-    method: 'get',
+    method: "get",
     params: {
       key,
     },

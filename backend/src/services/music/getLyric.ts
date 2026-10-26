@@ -1,38 +1,38 @@
-import { BaseServiceParams, BaseServiceResponse } from '../../types/core/request';
-import lyricParse from '../../util/lyricParse';
+import { BaseServiceParams, BaseServiceResponse } from "../../types/core/request";
+import lyricParse from "../../util/lyricParse";
 import {
   logServiceBranch,
   logServiceFailure,
   logServiceRequest,
   logServiceSuccess,
-} from '../../util/observability';
-import y_common from '../y_common';
+} from "../../util/observability";
+import y_common from "../y_common";
 
 export interface GetLyricParams extends BaseServiceParams {
   isFormat?: boolean;
 }
 
-const upstream = '/lyric/fcgi-bin/fcg_query_lyric_new.fcg';
+const upstream = "/lyric/fcgi-bin/fcg_query_lyric_new.fcg";
 
 export default ({
-  method = 'get',
+  method = "get",
   params = {},
   options = {},
   isFormat = false,
 }: GetLyricParams): Promise<BaseServiceResponse> => {
   const data = Object.assign(params, {
-    format: 'json',
-    outCharset: 'utf-8',
+    format: "json",
+    outCharset: "utf-8",
     pcachetime: Date.now(),
   });
   const opts = Object.assign(options, {
     params: data,
   });
-  logServiceRequest('getLyric', upstream, data, {
+  logServiceRequest("getLyric", upstream, data, {
     formatLyric: isFormat,
   });
   if (isFormat) {
-    logServiceBranch('getLyric', upstream, 'format', {
+    logServiceBranch("getLyric", upstream, "format", {
       formatLyric: true,
     });
   }
@@ -41,14 +41,14 @@ export default ({
     method,
     options: opts,
   })
-    .then((res: import('axios').AxiosResponse<any>) => {
-      const lyricString = res.data?.lyric && Buffer.from(res.data.lyric, 'base64').toString();
-      const lyric = isFormat ? lyricParse.lyricParse(lyricString || '') : lyricString;
+    .then((res: import("axios").AxiosResponse<any>) => {
+      const lyricString = res.data?.lyric && Buffer.from(res.data.lyric, "base64").toString();
+      const lyric = isFormat ? lyricParse.lyricParse(lyricString || "") : lyricString;
       const response = {
         ...(res.data || {}),
         lyric,
       };
-      logServiceSuccess('getLyric', upstream, {
+      logServiceSuccess("getLyric", upstream, {
         code: res.data?.code,
         hasLyric: Boolean(lyricString),
         formatLyric: isFormat,
@@ -61,7 +61,7 @@ export default ({
       };
     })
     .catch((error: unknown) => {
-      logServiceFailure('getLyric', upstream, error, data, {
+      logServiceFailure("getLyric", upstream, error, data, {
         formatLyric: isFormat,
       });
       return {

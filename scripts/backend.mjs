@@ -7,9 +7,11 @@ export async function ensureBackend({ build = true } = {}) {
   if (build) await buildBackend();
   const backend = lifecycle.createBackendController({
     entry: fileURLToPath(new URL("../dist/backend/server.cjs", import.meta.url)),
-    spawn: (entry, env) => fork(entry, [], {
-      env, stdio: ["ignore", "pipe", "pipe", "ipc"],
-    }),
+    spawn: (entry, env) =>
+      fork(entry, [], {
+        env,
+        stdio: ["ignore", "pipe", "pipe", "ipc"],
+      }),
   });
   const cleanup = () => backend.stop();
   process.once("exit", cleanup);
@@ -18,7 +20,10 @@ export async function ensureBackend({ build = true } = {}) {
     return {
       connection,
       start: () => backend.start(),
-      stop: () => { process.removeListener("exit", cleanup); backend.stop(); },
+      stop: () => {
+        process.removeListener("exit", cleanup);
+        backend.stop();
+      },
     };
   } catch (error) {
     process.removeListener("exit", cleanup);

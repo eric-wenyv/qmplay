@@ -1,6 +1,6 @@
-import { Context } from 'koa';
-import services from '../services';
-import { getTypedQuery } from '../types/core/request';
+import { Context } from "koa";
+import services from "../services";
+import { getTypedQuery } from "../types/core/request";
 
 const { getLyric } = services;
 
@@ -13,12 +13,12 @@ export default async (ctx: Context) => {
   // songmid=003rJSwm3TechU
   const { songmid, isFormat } = getTypedQuery<LyricQuery>(ctx);
   const props = {
-    method: 'get',
+    method: "get",
     params: {
       songmid,
     },
     option: {},
-    isFormat: isFormat === 'true' || isFormat === '1',
+    isFormat: isFormat === "true" || isFormat === "1",
   };
   if (songmid) {
     const { status, body } = await getLyric(props);
@@ -29,7 +29,7 @@ export default async (ctx: Context) => {
   } else {
     ctx.status = 400;
     ctx.body = {
-      response: 'no songmid',
+      response: "no songmid",
     };
   }
 };

@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches: [main, master]
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       live_api:
@@ -52,7 +52,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-2022]
-        node: ['22', '24']
+        node: ["22", "24"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -213,8 +213,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      ANDROID_BUILD_TOOLS_VERSION: '35.0.0'
-      ANDROID_NDK_VERSION: '29.0.14206865'
+      ANDROID_BUILD_TOOLS_VERSION: "35.0.0"
+      ANDROID_NDK_VERSION: "29.0.14206865"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -223,7 +223,7 @@ jobs:
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           log-accepted-android-sdk-licenses: false
@@ -302,7 +302,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: '22'
+          node-version: "22"
           package-manager-cache: false
       - name: Collect packages from this run
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8

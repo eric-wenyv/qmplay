@@ -21,3 +21,5 @@ proton.md
 
 # OS files
 .DS_Store
+
+.zed/

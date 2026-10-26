@@ -4,103 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#665e50" />
-    <meta name="description" content="qmplay，面向 Linux、Windows 和 Android 的极简 QQ 音乐播放器。" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' https: http:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <meta
+      name="description"
+      content="qmplay，面向 Linux、Windows 和 Android 的极简 QQ 音乐播放器。"
+    />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' https: http:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
     <title>qmplay</title>
     <link rel="icon" type="image/svg+xml" href="./assets/icon.svg" />
-    <link rel="stylesheet" href="./src/styles.css" />
+    <link rel="stylesheet" href="./src/app.css" />
     <script type="module" src="./src/app.js"></script>
   </head>
   <body class="auth-gated">
-    <main class="player" aria-label="qmplay 音乐播放器">
-      <div id="mode-backdrop" class="mode-backdrop" hidden></div>
-      <header class="topbar">
-        <div class="mode-control" data-open="false">
-          <button id="mode-toggle" class="mode-toggle" type="button" aria-label="切换页面：主页" aria-haspopup="menu" aria-expanded="false" aria-controls="mode-menu" data-tip="主页">
-            <span id="mode-icon" class="icon-slot"></span><span class="mode-dot" aria-hidden="true"></span>
-          </button>
-          <div id="mode-menu" class="mode-menu" role="menu" aria-label="页面导航" aria-hidden="true" inert>
-            <button class="mode-option" type="button" data-mode="home" role="menuitemradio" aria-checked="true" aria-label="主页" data-tip="主页"><span class="icon-slot" data-icon="home"></span><span class="mode-dot"></span></button>
-            <button class="mode-option" type="button" data-mode="radio" role="menuitemradio" aria-checked="false" aria-label="推荐电台" data-tip="推荐电台"><span class="icon-slot" data-icon="radio"></span><span class="mode-dot"></span></button>
-            <button class="mode-option" type="button" data-mode="liked" role="menuitemradio" aria-checked="false" aria-label="喜欢的音乐" data-tip="喜欢的音乐"><span class="icon-slot" data-icon="heart"></span><span class="mode-dot"></span></button>
-            <button class="mode-option" type="button" data-mode="artist" role="menuitemradio" aria-checked="false" aria-label="歌手电台" data-tip="歌手电台"><span class="icon-slot" data-icon="artist"></span><span class="mode-dot"></span></button>
-          </div>
-        </div>
-        <div class="window-controls" aria-label="窗口控制" hidden>
-          <button id="minimize-window" class="icon-button" type="button" aria-label="最小化"><span class="icon-slot" data-icon="minus"></span></button>
-          <button id="close-window" class="icon-button" type="button" aria-label="关闭窗口"><span class="icon-slot" data-icon="close"></span></button>
-        </div>
-      </header>
-
-      <section id="auth-view" class="auth-view" aria-label="QQ 音乐登录">
-        <h1>qmplay</h1>
-        <p class="auth-caption">登录 QQ 音乐，同步喜欢的音乐</p>
-        <img id="auth-qr" width="180" height="180" alt="QQ 登录二维码" hidden />
-        <p id="auth-message" role="status" aria-live="polite">正在恢复登录…</p>
-        <button id="auth-retry" class="text-button" type="button" hidden>重试</button>
-      </section>
-
-      <section class="main-stage" aria-label="正在播放">
-        <div id="listening-view" class="listening-view">
-          <div id="album-art" class="album-art" data-art="coast">
-            <img id="cover-image" src="./assets/coast.jpg" alt="日落时分的海岸" width="1024" height="1024" fetchpriority="high" draggable="false" />
-            <div class="art-light" aria-hidden="true"></div>
-            <span class="cover-index" aria-hidden="true">01 — FM</span>
-          </div>
-          <div class="track-meta">
-            <div class="track-copy"><h1 id="track-title">qmplay</h1><p id="track-artist"><span id="track-singer">让音乐慢慢响起</span><span id="track-album"></span></p></div>
-            <button id="like-toggle" class="icon-button like-button" type="button" aria-label="喜欢这首歌" aria-pressed="false" data-tip="喜欢"><span class="icon-slot" data-icon="heart"></span></button>
-          </div>
-        </div>
-
-        <section id="search-view" class="search-view" aria-label="搜索歌手" hidden>
-          <form id="artist-search" class="search-field" role="search"><span class="icon-slot" data-icon="search"></span><input id="search-input" type="search" placeholder="想听谁的歌？" aria-label="搜索歌手" autocomplete="off" spellcheck="false" /><button type="submit" class="icon-button small" aria-label="搜索"><span class="icon-slot" data-icon="arrowRight"></span></button></form>
-          <div id="artist-results" class="artist-results" aria-label="歌手搜索结果"></div>
-          <div id="search-empty" class="search-empty" hidden><span class="icon-slot" data-icon="search"></span><p>还没有找到这个声音</p></div>
-        </section>
-
-        <section id="albums-view" class="search-view" aria-label="歌手专辑" hidden>
-          <div class="browse-heading artist-summary"><span class="artist-avatar"><img id="artist-summary-image" alt="" /></span><h2 id="artist-summary-name"></h2><button id="play-artist" class="text-button" type="button">播放全部 <span class="icon-slot" data-icon="play"></span></button></div>
-          <div id="album-results" class="artist-results" aria-label="歌手专辑"></div>
-        </section>
-        <section id="browse-view" class="search-view" aria-label="选择电台" hidden>
-          <div class="browse-heading"><h2>听见此刻</h2></div>
-          <div id="radio-results" class="artist-results"></div>
-        </section>
-        <section id="liked-view" class="search-view" aria-label="喜欢的音乐" hidden>
-          <div class="browse-heading"><h2>喜欢的音乐</h2><button id="play-liked" class="text-button" type="button">播放全部 <span class="icon-slot" data-icon="play"></span></button></div>
-          <div id="liked-results" class="artist-results" aria-label="收藏歌曲"></div>
-        </section>
-        <section id="lyrics-view" class="search-view" aria-label="歌词" hidden>
-          <div class="browse-heading"><h2 id="lyrics-title">歌词</h2></div>
-          <div id="lyrics-lines" class="lyrics-lines"></div>
-        </section>
-        <section id="empty-view" class="empty-view" aria-label="暂无歌曲" hidden><span class="empty-heart icon-slot" data-icon="heart"></span><p id="empty-message">正在连接音乐服务…</p><button id="back-to-radio" class="text-button" type="button">去听电台 <span class="icon-slot" data-icon="arrowRight"></span></button></section>
-      </section>
-
-      <footer class="player-footer">
-        <div class="timeline"><input id="seek" type="range" min="0" max="0" value="0" step="1" aria-label="播放进度" /><div class="time-labels"><span id="elapsed">0:00</span><span id="duration">0:00</span></div></div>
-        <div class="control-deck">
-        <nav class="transport" aria-label="播放控制">
-          <div class="click-wheel">
-          <button id="order-toggle" class="icon-button side-control" type="button" aria-label="播放顺序：列表循环" data-tip="列表循环"><span class="icon-slot" data-icon="repeat"></span></button>
-          <button id="previous-track" class="icon-button skip-control" type="button" aria-label="上一首" data-tip="上一首"><span class="icon-slot" data-icon="previous"></span></button>
-          <button id="play-toggle" class="play-button" type="button" aria-label="播放" data-tip="播放 / 空格"><span class="icon-slot" data-icon="play"></span></button>
-          <button id="next-track" class="icon-button skip-control" type="button" aria-label="下一首" data-tip="下一首"><span class="icon-slot" data-icon="next"></span></button>
-          <button id="queue-toggle" class="icon-button side-control" type="button" aria-label="播放队列" aria-expanded="false" aria-controls="queue-panel" data-tip="播放队列"><span class="icon-slot" data-icon="queue"></span><span id="queue-indicator" class="queue-indicator"></span></button>
-          </div>
-        </nav>
-        </div>
-      </footer>
-
-      <div id="notice" class="notice" role="status" hidden><span id="notice-message"></span><button id="notice-action" type="button" hidden>重试</button><button id="dismiss-notice" type="button" aria-label="关闭提示">×</button></div>
-      <div id="queue-backdrop" class="queue-backdrop" hidden></div>
-      <aside id="queue-panel" class="queue-panel" role="dialog" aria-modal="true" aria-label="播放队列" hidden>
-        <header class="queue-header"><h2>播放队列 <span id="queue-count">06</span></h2><button id="close-queue" class="icon-button small" type="button" aria-label="关闭播放队列"><span class="icon-slot" data-icon="close"></span></button></header>
-        <div id="queue-list" class="queue-list" aria-label="歌曲列表"></div>
-        <p id="queue-message" class="queue-message" role="status"></p>
-      </aside>
-      <div id="announcement" class="sr-only" aria-live="polite" role="status"></div>
-    </main>
+    <div id="root"></div>
   </body>
 </html>

@@ -1,4 +1,4 @@
-type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
+type LogLevel = "debug" | "info" | "warn" | "error" | "silent";
 
 const levelWeight: Record<LogLevel, number> = {
   debug: 10,
@@ -8,7 +8,7 @@ const levelWeight: Record<LogLevel, number> = {
   silent: 50,
 };
 
-const isTestEnv = process.env.NODE_ENV === 'test' || Boolean(process.env.JEST_WORKER_ID);
+const isTestEnv = process.env.NODE_ENV === "test" || Boolean(process.env.JEST_WORKER_ID);
 
 const resolveLogLevel = (): LogLevel => {
   const envLevel = process.env.LOG_LEVEL?.toLowerCase() as LogLevel | undefined;
@@ -17,7 +17,7 @@ const resolveLogLevel = (): LogLevel => {
     return envLevel;
   }
 
-  return isTestEnv ? 'error' : 'info';
+  return isTestEnv ? "error" : "info";
 };
 
 const activeLevel = resolveLogLevel();
@@ -25,7 +25,7 @@ const activeLevel = resolveLogLevel();
 const shouldLog = (level: LogLevel): boolean => levelWeight[level] >= levelWeight[activeLevel];
 
 const write =
-  (level: LogLevel, method: 'log' | 'warn' | 'error') =>
+  (level: LogLevel, method: "log" | "warn" | "error") =>
   (...args: unknown[]): void => {
     if (shouldLog(level)) {
       console[method](...args);
@@ -33,10 +33,10 @@ const write =
   };
 
 export const logger = {
-  debug: write('debug', 'log'),
-  info: write('info', 'log'),
-  warn: write('warn', 'warn'),
-  error: write('error', 'error'),
+  debug: write("debug", "log"),
+  info: write("info", "log"),
+  warn: write("warn", "warn"),
+  error: write("error", "error"),
 };
 
 export const loggerState = {

@@ -1,4 +1,4 @@
-import services from '../services';
+import services from "../services";
 
 const { UCommon } = services;
 
@@ -7,8 +7,8 @@ const { UCommon } = services;
 // sex 0 男 1 女 2 组合
 // genre [1 - 20]
 // index a-z # 1-27
-import { Context } from 'koa';
-import { commonParams } from '../config';
+import { Context } from "koa";
+import { commonParams } from "../config";
 
 export default async (ctx: Context) => {
   const { area = -100, sex = -100, genre = -100, index = -100, page = 1 } = ctx.query;
@@ -18,8 +18,8 @@ export default async (ctx: Context) => {
       cv: 0,
     },
     singerList: {
-      module: 'Music.SingerListServer',
-      method: 'get_singer_list',
+      module: "Music.SingerListServer",
+      method: "get_singer_list",
       param: {
         area: +area,
         sex: +sex,
@@ -31,16 +31,16 @@ export default async (ctx: Context) => {
     },
   };
   const params = Object.assign(commonParams, {
-    format: 'json',
+    format: "json",
     data: JSON.stringify(data),
   });
   const props = {
-    method: 'get',
+    method: "get",
     params,
     option: {},
   };
   await UCommon(props)
-    .then((res: import('axios').AxiosResponse<any>) => {
+    .then((res: import("axios").AxiosResponse<any>) => {
       const response = res.data;
       ctx.status = 200;
       ctx.body = {

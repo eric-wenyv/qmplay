@@ -3,7 +3,7 @@ description: Install the pinned pnpm version and frozen dependencies with an OS-
 inputs:
   node-version:
     description: Node.js version
-    default: '22'
+    default: "22"
 runs:
   using: composite
   steps:

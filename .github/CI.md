@@ -6,25 +6,25 @@
 
 所有触发都会执行检查，通过后构建 Linux、Windows 和 Android 安装包；只有推送版本标签才会创建 GitHub Release。
 
-| 触发 | Android APK | GitHub Release |
-| --- | --- | --- |
-| Pull request，包括 fork | 临时 CI 密钥签名的 debug 包 | 不发布 |
-| 推送 `main` / `master` | 同上 | 不发布 |
+| 触发                                 | Android APK                              | GitHub Release             |
+| ------------------------------------ | ---------------------------------------- | -------------------------- |
+| Pull request，包括 fork              | 临时 CI 密钥签名的 debug 包              | 不发布                     |
+| 推送 `main` / `master`               | 同上                                     | 不发布                     |
 | 手动运行 `CI`（`workflow_dispatch`） | 同上，可勾选 `live_api` 追加真实上游测试 | 不发布，选择标签运行也一样 |
-| 推送 `v<package.json version>` 标签 | 固定正式密钥签名的非 debug 包 | 所有必需阶段成功后发布 |
+| 推送 `v<package.json version>` 标签  | 固定正式密钥签名的非 debug 包            | 所有必需阶段成功后发布     |
 
 普通分支和 PR 的新运行会取消同一分支/PR 的旧运行；标签运行不自动取消。
 
 ## 执行阶段
 
-| Job | 运行内容 |
-| --- | --- |
-| `metadata` | ShellCheck + actionlint 检查工作流；验证版本格式、标签与 `package.json` 完全一致，以及 Android `versionCode` 为有效正整数。 |
-| `tests` | Ubuntu 24.04 / Windows Server 2022 × Node.js 22 / 24，共四个组合，依次运行 `pnpm check`、`pnpm test:ci`、`pnpm build`。 |
-| `linux` / `windows` / `android` | 等待测试矩阵全部通过，再并行打包、校验并上传各平台产物，见下表。 |
-| `live-api` | 仅手动勾选 `live_api` 时，在测试通过后运行 `pnpm test:integration`。 |
-| `release` | 仅版本标签推送执行，等待全部平台打包成功后收集产物并发布。 |
-| `status` | 始终汇总结果，显示为 `CI status`；必需阶段失败、取消或被跳过时失败，可选阶段失败或取消也会使其失败。 |
+| Job                             | 运行内容                                                                                                                    |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `metadata`                      | ShellCheck + actionlint 检查工作流；验证版本格式、标签与 `package.json` 完全一致，以及 Android `versionCode` 为有效正整数。 |
+| `tests`                         | Ubuntu 24.04 / Windows Server 2022 × Node.js 22 / 24，共四个组合，依次运行 `pnpm check`、`pnpm test:ci`、`pnpm build`。     |
+| `linux` / `windows` / `android` | 等待测试矩阵全部通过，再并行打包、校验并上传各平台产物，见下表。                                                            |
+| `live-api`                      | 仅手动勾选 `live_api` 时，在测试通过后运行 `pnpm test:integration`。                                                        |
+| `release`                       | 仅版本标签推送执行，等待全部平台打包成功后收集产物并发布。                                                                  |
+| `status`                        | 始终汇总结果，显示为 `CI status`；必需阶段失败、取消或被跳过时失败，可选阶段失败或取消也会使其失败。                        |
 
 日常测试使用本地服务和上游替身，覆盖认证、收藏、播放、Android 本地服务、桌面生命周期及发布流程；也覆盖 Windows CRLF 源码和 ASAR 路径分隔符差异。`live-api` 才会访问真实 QQ 音乐，验证搜索、分页、电台、推荐、歌词及可播放音频，结果受网络和账号权限影响。
 
@@ -32,11 +32,11 @@
 
 ## 构建产物与验证
 
-| Artifact | 安装包（均附 SHA256 校验文件） | 验证范围 |
-| --- | --- | --- |
-| `packages-linux-x64` | deb、rpm、AppImage | 包元数据、ELF 架构、ASAR 与许可证、内置 API；解包 AppImage 后再次启动 API，无需 FUSE。 |
-| `packages-windows-x64` | NSIS 安装版、portable EXE | PE 架构、ASAR 与许可证、内置 API、静默安装/卸载及用户数据保留。 |
-| `packages-windows-arm64` | ARM64 NSIS 安装版、portable EXE | PE 架构、ASAR 与许可证；x64 runner 不运行 ARM64 程序。 |
+| Artifact                 | 安装包（均附 SHA256 校验文件）       | 验证范围                                                                                   |
+| ------------------------ | ------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `packages-linux-x64`     | deb、rpm、AppImage                   | 包元数据、ELF 架构、ASAR 与许可证、内置 API；解包 AppImage 后再次启动 API，无需 FUSE。     |
+| `packages-windows-x64`   | NSIS 安装版、portable EXE            | PE 架构、ASAR 与许可证、内置 API、静默安装/卸载及用户数据保留。                            |
+| `packages-windows-arm64` | ARM64 NSIS 安装版、portable EXE      | PE 架构、ASAR 与许可证；x64 runner 不运行 ARM64 程序。                                     |
 | `packages-android-arm64` | ARM64 APK；普通 CI 文件名带 `-debug` | 签名、zipalign、版本、最低 API、debug 状态、DEX、ARM64 ELF、`runtime.zip` 完整性及许可证。 |
 
 构建环境与缓存规则：
@@ -49,14 +49,14 @@
 
 在仓库 **Settings → Secrets and variables → Actions** 设置：
 
-| Secret | 要求与用途 |
-| --- | --- |
-| `QMPLAY_ANDROID_KEYSTORE_BASE64` | 发布必需，PKCS12 密钥库文件的 Base64。 |
-| `QMPLAY_ANDROID_KEYSTORE_PASSWORD` | 发布必需，密钥库密码。 |
-| `QMPLAY_ANDROID_KEY_ALIAS` | 可选，默认 `qmplay`。 |
-| `QMPLAY_ANDROID_KEY_PASSWORD` | 可选，默认与密钥库密码相同。 |
-| `WINDOWS_CERTIFICATE_BASE64` | 可选，electron-builder 支持的 PFX 证书 Base64；未配置时 Windows 包不签名。 |
-| `WINDOWS_CERTIFICATE_PASSWORD` | PFX 证书的密码，按证书需要配置。 |
+| Secret                             | 要求与用途                                                                 |
+| ---------------------------------- | -------------------------------------------------------------------------- |
+| `QMPLAY_ANDROID_KEYSTORE_BASE64`   | 发布必需，PKCS12 密钥库文件的 Base64。                                     |
+| `QMPLAY_ANDROID_KEYSTORE_PASSWORD` | 发布必需，密钥库密码。                                                     |
+| `QMPLAY_ANDROID_KEY_ALIAS`         | 可选，默认 `qmplay`。                                                      |
+| `QMPLAY_ANDROID_KEY_PASSWORD`      | 可选，默认与密钥库密码相同。                                               |
+| `WINDOWS_CERTIFICATE_BASE64`       | 可选，electron-builder 支持的 PFX 证书 Base64；未配置时 Windows 包不签名。 |
+| `WINDOWS_CERTIFICATE_PASSWORD`     | PFX 证书的密码，按证书需要配置。                                           |
 
 本地默认密钥为 `~/.local/share/qmplay/android-signing.p12`，也可用 `QMPLAY_ANDROID_KEYSTORE` 指定其他文件。首次正式发布后应妥善保存该签名密钥，后续版本继续使用，以支持覆盖安装并保留数据。
 

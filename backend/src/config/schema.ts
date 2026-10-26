@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 export const ServerSchema = z.object({
   port: z.number().int().min(0).max(65535),

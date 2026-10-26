@@ -1,5 +1,5 @@
-import { defaultConfig } from './default';
-import { AppConfigSchema } from './schema';
+import { defaultConfig } from "./default";
+import { AppConfigSchema } from "./schema";
 
 // The embedded service has no configuration editor or writable installation files.
 // Authentication data is managed separately by SessionStore.

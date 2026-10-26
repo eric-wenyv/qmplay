@@ -1,13 +1,13 @@
-import services from '../services';
+import services from "../services";
 
 const { getSingerStarNum } = services;
 
-import { Context } from 'koa';
+import { Context } from "koa";
 
 export default async (ctx: Context) => {
   const { singermid } = ctx.query;
   const props = {
-    method: 'get',
+    method: "get",
     params: {
       singermid,
     },
@@ -22,7 +22,7 @@ export default async (ctx: Context) => {
   } else {
     ctx.status = 400;
     ctx.body = {
-      response: 'no singermid',
+      response: "no singermid",
     };
   }
 };

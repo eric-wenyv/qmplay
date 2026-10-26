@@ -1,10 +1,10 @@
-import { MusicCredential } from './session';
-import { AuthError, musicRequest } from './upstream';
+import { MusicCredential } from "./session";
+import { AuthError, musicRequest } from "./upstream";
 
 export async function getFavorites(credential: MusicCredential, offset = 0, limit = 100) {
   const data = await musicRequest(
-    'music.srfDissInfo.DissInfo',
-    'CgiGetDiss',
+    "music.srfDissInfo.DissInfo",
+    "CgiGetDiss",
     {
       disstid: 0,
       dirid: 201,
@@ -18,7 +18,7 @@ export async function getFavorites(credential: MusicCredential, offset = 0, limi
     credential,
   );
   if (!Array.isArray(data.songlist))
-    throw new AuthError(502, 'UPSTREAM_INVALID', '收藏列表数据不完整，请重试');
+    throw new AuthError(502, "UPSTREAM_INVALID", "收藏列表数据不完整，请重试");
   const total = Number(
     data.total_song_num ?? data.total_song ?? data.dirinfo?.songnum ?? data.dirinfo?.song_num,
   );
@@ -42,8 +42,8 @@ export async function setFavorite(
   liked: boolean,
 ) {
   await musicRequest(
-    'music.musicasset.PlaylistDetailWrite',
-    liked ? 'AddSonglist' : 'DelSonglist',
+    "music.musicasset.PlaylistDetailWrite",
+    liked ? "AddSonglist" : "DelSonglist",
     {
       dirId: 201,
       v_songInfo: [{ songId, songType }],
@@ -62,14 +62,14 @@ export async function setFavorite(
     );
     if (found) {
       if (liked) return { liked: true };
-      throw new AuthError(502, 'SYNC_NOT_CONFIRMED', 'QQ 音乐尚未确认取消收藏，请稍后重试');
+      throw new AuthError(502, "SYNC_NOT_CONFIRMED", "QQ 音乐尚未确认取消收藏，请稍后重试");
     }
     if (!result.hasMore) {
       if (!liked) return { liked: false };
-      throw new AuthError(502, 'SYNC_NOT_CONFIRMED', 'QQ 音乐尚未确认收藏，请稍后重试');
+      throw new AuthError(502, "SYNC_NOT_CONFIRMED", "QQ 音乐尚未确认收藏，请稍后重试");
     }
     if (result.nextOffset <= offset) break;
     offset = result.nextOffset;
   }
-  throw new AuthError(502, 'SYNC_NOT_CONFIRMED', '收藏列表未能完整校验，请稍后重试');
+  throw new AuthError(502, "SYNC_NOT_CONFIRMED", "收藏列表未能完整校验，请稍后重试");
 }

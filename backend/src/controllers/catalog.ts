@@ -1,6 +1,6 @@
-import { Context } from 'koa';
-import { z } from 'zod';
-import { getSingerAlbums, getAlbumTracks } from '../services/singers/catalog';
+import { Context } from "koa";
+import { z } from "zod";
+import { getSingerAlbums, getAlbumTracks } from "../services/singers/catalog";
 
 const pagination = {
   page: z.coerce.number().int().min(1).max(100000).default(1),

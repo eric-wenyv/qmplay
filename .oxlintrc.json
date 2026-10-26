@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "react"],
+  "categories": {
+    "correctness": "warn"
+  },
+  "env": {
+    "node": true
+  },
+  "overrides": [
+    {
+      "files": ["src/**/*.ts", "src/**/*.tsx"],
+      "env": {
+        "browser": true,
+        "node": false
+      }
+    }
+  ],
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "dist/**",
+    "release/**",
+    "output/**",
+    ".cache/**",
+    ".sites-runtime/**",
+    "coverage/**",
+    ".nyc_output/**",
+    "licenses/**"
+  ]
+}

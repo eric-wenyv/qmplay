@@ -1,12 +1,12 @@
-import services from '../services';
+import services from "../services";
 
 const { getRadioLists } = services;
 
-import { Context } from 'koa';
+import { Context } from "koa";
 
 export default async (ctx: Context) => {
   const props = {
-    method: 'get',
+    method: "get",
     params: {},
     option: {},
   };
