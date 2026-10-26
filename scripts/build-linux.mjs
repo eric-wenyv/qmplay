@@ -25,8 +25,7 @@ function run(args) {
 
 if (process.platform !== "linux") throw new Error("Linux packages must be built on Linux.");
 await run(["scripts/check.mjs"]);
-const tests = (await readdir(path.join(root, "tests"))).filter((name) => name.endsWith(".test.js")).sort();
-await run(["--test", ...tests.map((name) => `tests/${name}`)]);
+await run(["scripts/test.mjs"]);
 await run(["scripts/build.mjs"]);
 const cli = require.resolve("electron-builder/out/cli/cli.js");
 await run([cli, "--linux", "deb", "rpm", "AppImage", ...process.argv.slice(2), "--publish", "never"]);

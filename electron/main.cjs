@@ -31,6 +31,7 @@ protocol.registerSchemesAsPrivileged([
 	},
 ]);
 app.setName("qqmui");
+if (process.platform === "win32") app.setAppUserModelId("app.qqmui");
 // Reuse an existing desktop profile to preserve login cookies and local playback state.
 const appData = app.getPath("appData");
 const userData = ["qqmui", "Interlude", "间奏", "interlude-player"]

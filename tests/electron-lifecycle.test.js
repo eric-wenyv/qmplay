@@ -3,17 +3,22 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import vm from 'node:vm';
 
 const require = createRequire(import.meta.url);
 const source = readFileSync(new URL('../electron/main.cjs', import.meta.url), 'utf8');
 
-async function desktop({ singleInstance = true } = {}) {
+const profileRoot = path.resolve('/profiles');
+
+async function desktop({ singleInstance = true, platform = process.platform } = {}) {
   const windows = [], trays = [], tasks = [];
   const lifecycle = { starts: 0, stops: 0, quits: 0, exited: false };
   const ipcMain = new EventEmitter();
   const app = Object.assign(new EventEmitter(), {
-    setName() {}, getPath: () => '/profiles', setPath() {},
+    setName() {}, getPath: () => profileRoot, setPath() {},
+    setAppUserModelId(id) { lifecycle.appId = id; },
     requestSingleInstanceLock: () => singleInstance,
     whenReady: () => ({ then: action => tasks.push(Promise.resolve().then(action)) }),
     quit() {
@@ -76,7 +81,7 @@ async function desktop({ singleInstance = true } = {}) {
       if (id === 'electron') return electron;
       if (id === 'node:fs') return {
         ...require(id), mkdirSync() {},
-        existsSync: filename => filename.startsWith('/profiles/') ? false : existsSync(filename),
+        existsSync: filename => filename.startsWith(profileRoot + path.sep) ? false : existsSync(filename),
       };
       if (id === './backend.cjs') return {
         createBackendController: () => ({
@@ -87,8 +92,8 @@ async function desktop({ singleInstance = true } = {}) {
       if (id === './artwork.cjs' || id === './api.cjs' || id === './auth-cookies.cjs') return {};
       return require(id);
     },
-    __dirname: new URL('../electron/', import.meta.url).pathname,
-    process: { platform: 'linux', env: {} },
+    __dirname: fileURLToPath(new URL('../electron/', import.meta.url)),
+    process: { platform, env: {} },
   });
   await Promise.all(tasks);
   for (const window of windows) window.emit('ready-to-show');
@@ -106,6 +111,20 @@ test('desktop creates a packaged tray icon with exactly the Show and Quit menu i
   assert.equal(window.options.webPreferences.backgroundThrottling, false);
   assert.equal(window.visible, true);
   assert.equal(lifecycle.starts, 1);
+});
+
+test('Windows uses the installer app ID and keeps playback alive until tray Quit', async () => {
+  const { windows: [window], trays: [tray], lifecycle } = await desktop({ platform: 'win32' });
+  assert.equal(lifecycle.appId, 'app.qqmui');
+  window.close();
+  assert.equal(window.destroyed, false);
+  assert.equal(lifecycle.stops, 0);
+  tray.emit('click');
+  assert.equal(window.visible, true);
+  assert.equal(window.loads, 1);
+  tray.menu[1].click();
+  assert.equal(lifecycle.exited, true);
+  assert.equal(lifecycle.stops, 1);
 });
 
 test('native close and the titlebar close button hide the existing renderer and keep the backend alive', async () => {

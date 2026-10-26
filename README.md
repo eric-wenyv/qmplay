@@ -1,6 +1,6 @@
 # qqmui
 
-面向 Linux 和 Android 的极简 QQ 音乐播放器，内置精简的 `qq-music-api` 后端。
+面向 Linux、Windows 和 Android 的极简 QQ 音乐播放器，内置精简的 `qq-music-api` 后端。
 
 ## 功能
 
@@ -33,17 +33,49 @@ pnpm start
 ## Linux 打包
 
 ```sh
-./build.sh
+pnpm install --frozen-lockfile
+pnpm build:linux
 ```
 
-构建机需安装 `rpmbuild`。脚本会安装依赖、检查代码、运行测试并构建，生成的 deb、rpm、AppImage 安装包及 SHA256 校验文件位于 `release/`。
+构建机需安装 `rpmbuild`。脚本会检查代码、运行测试并构建，生成的 deb、rpm、AppImage 安装包及 SHA256 校验文件位于 `release/`。
+
+## Windows 打包
+
+在 Windows 或 Linux x64 上运行（需要 Node.js 22.12+ 和 pnpm 11.25.0）：
+
+```sh
+pnpm install --frozen-lockfile
+pnpm build:windows
+```
+
+脚本先检查代码、运行全部测试并构建内置后端，再生成 Windows x64 安装版和免安装版：
+
+- `release/qqmui-1.0.0-win-x64-setup.exe`：安装向导，可选择安装位置，创建桌面和开始菜单入口。
+- `release/qqmui-1.0.0-win-x64-portable.exe`：直接运行，无需安装。
+- `release/SHA256SUMS-windows-x64`：以上两个文件的 SHA256 校验值，不覆盖 Linux 的校验文件。
+
+Windows 用户无需另装 Node.js 或部署 API。两种版本均将登录凭据和播放状态保存在当前用户的 `%APPDATA%/qqmui`，免安装版也会复用该目录；关闭窗口后继续在托盘运行，通过托盘「退出」结束播放。卸载默认保留用户数据。当前未配置代码签名证书，分发产物为未签名版本。
+
+`pnpm dist:win` 为同一构建入口。需要 Windows ARM64 时运行 `pnpm build:windows --arm64`，产物和校验文件名中的 `x64` 相应替换为 `arm64`。Linux 交叉构建需先安装 Wine，并确保 `wine` 命令在 `PATH` 中；脚本会在构建前检查。首次构建需要联网下载 Electron 和 NSIS。也可使用包含 Wine 的 [electron-builder Docker 构建环境](https://www.electron.build/v26/docs/features/multi-platform-build/)。
+
+仓库的 `CI` GitHub Actions 工作流会同时构建 Windows x64 和 ARM64 安装包、免安装包及校验文件。
 
 ## 检查
 
 ```sh
 pnpm check
 pnpm test
+# 同时生成 output/test-results.xml，供 CI 收集 JUnit 报告
+pnpm test:ci
 ```
+
+## GitHub CI 与发布
+
+PR、推送到 `main`/`master`、推送 `v*` 标签及手动运行均触发完整流水线：验证工作流与版本 → Linux/Windows × Node.js 22/24 检查和测试 → Windows、Linux、Android 并行打包 → 校验产物 → 上传 Actions artifacts。所有必需步骤的结果汇总为 `CI status`，可将其配置为分支保护检查。
+
+Windows 生成 x64/ARM64 安装版和免安装版；Linux 生成 x64 deb、rpm、AppImage；Android 生成 ARM64 APK。非版本发布构建使用临时 CI 密钥签名的 debug 预览 APK。推送与 `package.json` 版本一致的标签（例如 `v1.0.0`）后，必须使用已配置的 Android 正式签名密钥；全部平台通过后，自动上传安装包、各平台校验文件、汇总 `SHA256SUMS` 和 `build-manifest.json`，然后发布 GitHub Release。预发布版本不会设为 latest。
+
+首次发布前需配置 `QQMUI_ANDROID_KEYSTORE_BASE64`、`QQMUI_ANDROID_KEYSTORE_PASSWORD`，可选配置别名及 Windows 签名证书。具体触发条件、产物、检查范围和签名配置见 [CI 与发布文档](.github/CI.md)。
 
 ## Android 与移动端
 

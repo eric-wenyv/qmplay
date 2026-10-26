@@ -1,0 +1,331 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      live_api:
+        description: Also run the live QQ Music upstream integration test
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/
+  ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+
+jobs:
+  metadata:
+    name: Workflow and version validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      is_release: ${{ steps.metadata.outputs.is_release }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Validate workflow syntax
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 -color
+      - name: Validate version and tag
+        id: metadata
+        run: node scripts/ci/release.mjs --metadata
+
+  tests:
+    name: Tests / ${{ matrix.os }} / Node ${{ matrix.node }}
+    needs: metadata
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-project
+        with:
+          node-version: ${{ matrix.node }}
+      - name: JavaScript and TypeScript checks
+        run: pnpm check
+      - name: Offline unit and integration tests
+        id: tests
+        run: pnpm test:ci
+      - name: Build renderer and bundled backend
+        run: pnpm build
+      - name: Upload JUnit report
+        if: ${{ always() && steps.tests.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-results-${{ matrix.os }}-node${{ matrix.node }}
+          path: output/test-results.xml
+          if-no-files-found: error
+          retention-days: 14
+
+  linux:
+    name: Linux packages / x64
+    needs: [metadata, tests]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-project
+      - name: Install Linux packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm fakeroot libarchive-tools desktop-file-utils libnss3 libatk-bridge2.0-0t64 libgtk-3-0t64 libgbm1 libasound2t64
+      - name: Cache Electron and packaging tools
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: electron-linux-x64-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Build deb, rpm and AppImage
+        run: pnpm build:linux --x64
+      - name: Verify checksums and package metadata
+        run: |
+          cd release
+          sha256sum --check SHA256SUMS
+          cp SHA256SUMS SHA256SUMS-linux-x64
+          dpkg-deb --info ./*.deb
+          rpm --query --package --info ./*.rpm
+      - name: Smoke test the packaged runtime and API
+        run: node scripts/ci/verify-desktop.mjs release/linux-unpacked x64
+      - name: Extract and smoke test the AppImage without FUSE
+        run: |
+          mkdir -p output/appimage
+          cd output/appimage
+          ../../release/*.AppImage --appimage-extract > /dev/null
+          node ../../scripts/ci/verify-desktop.mjs squashfs-root x64
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: packages-linux-x64
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+          path: |
+            release/*.deb
+            release/*.rpm
+            release/*.AppImage
+            release/SHA256SUMS-linux-x64
+
+  windows:
+    name: Windows packages / ${{ matrix.arch }}
+    needs: [metadata, tests]
+    runs-on: windows-2022
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-project
+      - name: Cache Electron and packaging tools
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-windows-${{ matrix.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Build installer and portable executable
+        env:
+          CSC_LINK: ${{ needs.metadata.outputs.is_release == 'true' && secrets.WINDOWS_CERTIFICATE_BASE64 || '' }}
+          CSC_KEY_PASSWORD: ${{ needs.metadata.outputs.is_release == 'true' && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
+        run: pnpm build:windows --${{ matrix.arch }}
+      - name: Verify package checksums
+        shell: bash
+        env:
+          PACKAGE_ARCH: ${{ matrix.arch }}
+        run: |
+          cd release
+          sha256sum --check "SHA256SUMS-windows-$PACKAGE_ARCH"
+      - name: Verify archive, executable and packaged API
+        env:
+          PACKAGE_ARCH: ${{ matrix.arch }}
+        shell: pwsh
+        run: |
+          $directory = if ($env:PACKAGE_ARCH -eq 'x64') { 'release/win-unpacked' } else { 'release/win-arm64-unpacked' }
+          node scripts/ci/verify-desktop.mjs $directory $env:PACKAGE_ARCH
+      - name: Install and uninstall the x64 package
+        if: ${{ matrix.arch == 'x64' }}
+        shell: pwsh
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP 'qqmui-install'
+          $installer = (Get-ChildItem release/*-win-x64-setup.exe).FullName
+          $process = Start-Process $installer -ArgumentList '/S', '/currentuser', "/D=$destination" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Installer exited $($process.ExitCode)" }
+          foreach ($file in @('qqmui.exe', 'resources/app.asar')) {
+            $installed = (Get-FileHash (Join-Path $destination $file) -Algorithm SHA256).Hash
+            $packaged = (Get-FileHash (Join-Path 'release/win-unpacked' $file) -Algorithm SHA256).Hash
+            if ($installed -ne $packaged) { throw "Installed $file differs from build output" }
+          }
+          $profile = Join-Path $env:APPDATA 'qqmui'
+          New-Item -ItemType Directory -Force $profile | Out-Null
+          $sentinel = Join-Path $profile 'ci-uninstall-sentinel'
+          Set-Content $sentinel 'preserve-user-data'
+          $process = Start-Process (Join-Path $destination 'Uninstall qqmui.exe') -ArgumentList '/S', '/currentuser' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Uninstaller exited $($process.ExitCode)" }
+          for ($i = 0; $i -lt 30 -and (Test-Path (Join-Path $destination 'qqmui.exe')); $i++) { Start-Sleep -Milliseconds 200 }
+          if (Test-Path (Join-Path $destination 'qqmui.exe')) { throw 'Uninstaller left the executable behind' }
+          if (!(Test-Path $sentinel)) { throw 'Uninstaller removed user data' }
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: packages-windows-${{ matrix.arch }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+          path: |
+            release/*-win-${{ matrix.arch }}-setup.exe
+            release/*-win-${{ matrix.arch }}-portable.exe
+            release/SHA256SUMS-windows-${{ matrix.arch }}
+
+  android:
+    name: Android APK / arm64
+    needs: [metadata, tests]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ANDROID_BUILD_TOOLS_VERSION: '35.0.0'
+      ANDROID_NDK_VERSION: '29.0.14206865'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-project
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          log-accepted-android-sdk-licenses: false
+          packages: platform-tools
+      - name: Install pinned SDK and NDK
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;$ANDROID_BUILD_TOOLS_VERSION" "ndk;$ANDROID_NDK_VERSION"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION" >> "$GITHUB_ENV"
+          sudo apt-get update
+          sudo apt-get install -y curl unzip zip
+      - name: Cache the verified Node.js Mobile runtime
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .cache/android/nodejs-mobile-v18.20.4-android.zip
+          key: nodejs-mobile-android-18.20.4-bd7321eaa1a7602f
+      - name: Stage the release signing key
+        if: ${{ needs.metadata.outputs.is_release == 'true' }}
+        env:
+          QQMUI_ANDROID_KEYSTORE_BASE64: ${{ secrets.QQMUI_ANDROID_KEYSTORE_BASE64 }}
+          QQMUI_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.QQMUI_ANDROID_KEYSTORE_PASSWORD }}
+        run: node scripts/ci/android-signing.mjs --stage
+      - name: Build the release APK
+        if: ${{ needs.metadata.outputs.is_release == 'true' }}
+        env:
+          QQMUI_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.QQMUI_ANDROID_KEYSTORE_PASSWORD }}
+          QQMUI_ANDROID_KEY_ALIAS: ${{ secrets.QQMUI_ANDROID_KEY_ALIAS }}
+          QQMUI_ANDROID_KEY_PASSWORD: ${{ secrets.QQMUI_ANDROID_KEY_PASSWORD }}
+        run: pnpm build:android
+      - name: Build a preview APK with a temporary CI key
+        if: ${{ needs.metadata.outputs.is_release != 'true' }}
+        run: pnpm build:android --debug
+      - name: Verify release APK signature, ABI, version and runtime
+        if: ${{ needs.metadata.outputs.is_release == 'true' }}
+        run: node scripts/ci/verify-android.mjs
+      - name: Verify preview APK signature, ABI, version and runtime
+        if: ${{ needs.metadata.outputs.is_release != 'true' }}
+        run: node scripts/ci/verify-android.mjs --debug
+      - name: Remove the release signing key
+        if: ${{ always() }}
+        run: node scripts/ci/android-signing.mjs --cleanup
+      - name: Upload Android APK and checksum
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: packages-android-arm64
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+          path: |
+            release/*.apk
+            release/*.apk.sha256
+
+  live-api:
+    name: Optional live upstream integration
+    needs: tests
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.live_api }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-project
+      - run: pnpm test:integration
+
+  release:
+    name: Publish complete versioned release
+    needs: [metadata, tests, linux, windows, android]
+    if: ${{ needs.metadata.outputs.is_release == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Collect packages from this run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: packages-*
+          path: release
+          merge-multiple: true
+      - name: Verify all platforms and publish after uploading every asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/release.mjs --publish release
+
+  status:
+    name: CI status
+    needs: [metadata, tests, linux, windows, android, live-api, release]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check required job results
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          const jobs = JSON.parse(process.env.JOB_RESULTS);
+          const required = ['metadata', 'tests', 'linux', 'windows', 'android'];
+          if (jobs.metadata.outputs?.is_release === 'true') required.push('release');
+          const failed = required.some(name => jobs[name].result !== 'success') ||
+            Object.values(jobs).some(job => ['failure', 'cancelled'].includes(job.result));
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+            '| Stage | Result |\n| --- | --- |\n' + Object.entries(jobs).map(([name, job]) => `| ${name} | ${job.result} |`).join('\n') + '\n');
+          if (failed) process.exitCode = 1;
+          NODE

@@ -1,0 +1,26 @@
+name: Setup project
+description: Install the pinned pnpm version and frozen dependencies with an OS-specific store cache
+inputs:
+  node-version:
+    description: Node.js version
+    default: '22'
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      with:
+        node-version: ${{ inputs.node-version }}
+        package-manager-cache: false
+    - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+      with:
+        run_install: false
+    - id: store
+      shell: bash
+      run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: ${{ steps.store.outputs.path }}
+        key: pnpm-${{ runner.os }}-${{ runner.arch }}-node${{ inputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml') }}
+        restore-keys: pnpm-${{ runner.os }}-${{ runner.arch }}-node${{ inputs.node-version }}-
+    - shell: bash
+      run: pnpm install --frozen-lockfile --registry=https://registry.npmjs.org

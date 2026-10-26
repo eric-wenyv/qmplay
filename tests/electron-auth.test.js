@@ -3,12 +3,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 const require = createRequire(import.meta.url);
 const source = readFileSync(new URL('../electron/main.cjs', import.meta.url), 'utf8');
+const profileRoot = path.resolve('/profiles');
 async function desktop(jar, replies, profiles = []) {
   let handler;
   const identity = {};
-  const directories = new Set(profiles.map((name) => `/profiles/${name}`));
+  const directories = new Set(profiles.map((name) => path.join(profileRoot, name)));
   const requests = [],
     tasks = [];
   const cookies = {
@@ -38,7 +41,8 @@ async function desktop(jar, replies, profiles = []) {
     app: {
       requestSingleInstanceLock: () => true,
       setName: (name) => { identity.name = name; },
-      getPath: () => '/profiles',
+      getPath: () => profileRoot,
+      setAppUserModelId() {},
       setPath: (key, value) => {
         assert(directories.has(value), 'Electron requires an existing profile directory');
         identity[key] = value;
@@ -71,7 +75,7 @@ async function desktop(jar, replies, profiles = []) {
           : id === 'node:fs'
             ? {
                 ...require(id),
-                existsSync: (filename) => filename.startsWith('/profiles/')
+                existsSync: (filename) => filename.startsWith(profileRoot + path.sep)
                   ? directories.has(filename)
                   : require(id).existsSync(filename),
                 mkdirSync: (directory, options) => {
@@ -88,8 +92,8 @@ async function desktop(jar, replies, profiles = []) {
                 },
               }
             : require(id),
-    __dirname: new URL('../electron/', import.meta.url).pathname,
-    process: { platform: 'linux', env: {} },
+    __dirname: fileURLToPath(new URL('../electron/', import.meta.url)),
+    process: { platform: process.platform, env: {} },
     URL,
     Response,
     Headers,
@@ -108,7 +112,7 @@ test('qqmui reuses existing desktop profiles after the rename and prefers its ow
     const { identity } = await desktop(new Map(), [], profiles);
     assert.equal(identity.name, 'qqmui');
     assert.equal(identity.title, 'qqmui · qq music ui');
-    assert.equal(identity.userData, `/profiles/${expected}`);
+    assert.equal(identity.userData, path.join(profileRoot, expected));
     assert.equal(identity.sessionData, identity.userData);
   }
 });

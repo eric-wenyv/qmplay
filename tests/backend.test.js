@@ -213,7 +213,8 @@ test('encrypted account sessions survive reload, reject tampering and stay revok
   const filename = path.join(directory, (await readdir(directory)).find((name) => name.endsWith('.session')));
   const bytes = await readFile(filename);
   assert(!bytes.toString().includes('private-music-key'));
-  assert.equal((await stat(filename)).mode & 0o777, 0o600);
+  // Windows uses the profile's ACL rather than POSIX permission bits.
+  if (process.platform !== 'win32') assert.equal((await stat(filename)).mode & 0o777, 0o600);
   assert.deepEqual(await new session.SessionStore(directory).get(token), account);
   assert.equal(await store.get('../../key'), null);
   bytes[30] ^= 255;

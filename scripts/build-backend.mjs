@@ -22,7 +22,8 @@ async function packageFor(filename) {
 async function bundledNotices(metafile, outdir) {
 	const packages = new Map();
 	for (const input of Object.keys(metafile.inputs)) {
-		if (!input.split(path.sep).includes("node_modules")) continue;
+		// esbuild metafile paths use forward slashes, including on Windows.
+		if (!input.split(/[\\/]/).includes("node_modules")) continue;
 		const pkg = await packageFor(path.resolve(root, input));
 		packages.set(`${pkg.manifest.name}@${pkg.manifest.version}`, pkg);
 	}
