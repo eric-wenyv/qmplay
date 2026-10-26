@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { access, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import asar from "@electron/asar";
 import { validateMetadata, packageGroups, verifyChecksums, prepareRelease, publishRelease } from "../scripts/ci/release.mjs";
 import { prepareAndroidSigning, cleanupAndroidSigning } from "../scripts/ci/android-signing.mjs";
-import { smokeBackend } from "../scripts/ci/verify-desktop.mjs";
+import { smokeBackend, verifyDesktop } from "../scripts/ci/verify-desktop.mjs";
 import { buildBackend } from "../scripts/build-backend.mjs";
 import { verifyAndroidBadging } from "../scripts/ci/verify-android.mjs";
 
@@ -158,6 +159,41 @@ test("Android signing stages only a private temporary file and never writes key 
 	await cleanupAndroidSigning({ ...env, QQMUI_ANDROID_SIGNING_DIR: staged.directory });
 	await assert.rejects(access(staged.filename), { code: "ENOENT" });
 	await assert.rejects(cleanupAndroidSigning({ ...env, QQMUI_ANDROID_SIGNING_DIR: directory }), /runner temp|unrelated/);
+});
+
+test("desktop archive verification reads nested ASAR manifests on every host", async (t) => {
+	const directory = await temporary(t);
+	const source = path.join(directory, "source");
+	const current = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+	const files = {
+		"package.json": JSON.stringify({ version: current.version, main: "electron/main.cjs" }),
+		"electron/main.cjs": "",
+		"electron/preload.cjs": "",
+		"dist/index.html": "<!doctype html>",
+		"dist/assets/icon.png": "fixture",
+		"dist/backend/server.cjs": "process.exit(0);",
+		"dist/backend/dependencies.json": JSON.stringify(["koa", "axios", "zod", "@jixun/qmweb-sign"].map((name) => ({ name }))),
+		"dist/backend/THIRD_PARTY_NOTICES.txt": "fixture notices",
+		"THIRD_PARTY_NOTICES.md": "fixture notices",
+	};
+	for (const [name, content] of Object.entries(files)) {
+		const filename = path.join(source, name);
+		await mkdir(path.dirname(filename), { recursive: true });
+		await writeFile(filename, content);
+	}
+	const archive = path.join(directory, "resources/app.asar");
+	await mkdir(path.dirname(archive), { recursive: true });
+	await asar.createPackage(source, archive);
+	t.after(() => asar.uncache(archive));
+	// Use the other architecture so this fixture checks the archive without executing a fake PE file.
+	const arch = process.arch === "arm64" ? "x64" : "arm64";
+	const executable = Buffer.alloc(128);
+	executable.write("MZ");
+	executable.writeUInt32LE(64, 60);
+	executable.write("PE\0\0", 64);
+	executable.writeUInt16LE(arch === "arm64" ? 0xaa64 : 0x8664, 68);
+	await writeFile(path.join(directory, "qqmui.exe"), executable);
+	await verifyDesktop(directory, arch);
 });
 
 test("the packaged-backend smoke check boots the standalone bundle with a private token and rejects early exits", { timeout: 20000 }, async (t) => {

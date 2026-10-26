@@ -36,6 +36,8 @@ go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 -color
 
 Actions artifacts 保留 14 天，已压缩安装包不再进行高压缩。桌面 API 冒烟测试验证健康检查、令牌拒绝与未登录状态，使用独立临时认证目录，不请求上游。ARM64 桌面包不在 x64 runner 上运行。Android 的现有离线运行时测试和 APK 检查不包含模拟器或真机 UI 测试；当前 APK 只有 ARM64 原生库，Node.js Mobile 18.20.4 仍要求 4 KB 内存页设备。
 
+桌面归档校验按宿主系统的路径分隔符调用 ASAR 提取接口。回归测试创建真实的嵌套 ASAR 归档，在 Linux 和 Windows 测试矩阵中验证依赖清单读取，避免跨平台路径差异导致已打包文件被误报为缺失。
+
 Android 构建固定 JDK 17、API 35、build-tools 35.0.0、NDK 29.0.14206865；Node.js Mobile 压缩包固定版本和 SHA256，并在解压前校验。缓存只保存该压缩包。
 
 ## 正式签名配置

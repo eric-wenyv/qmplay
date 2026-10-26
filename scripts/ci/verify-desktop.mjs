@@ -49,14 +49,16 @@ export async function verifyDesktop(directory, arch = process.arch) {
 	const pkg = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 	const archive = path.join(directory, "resources/app.asar");
 	const files = asar.listPackage(archive).map((name) => name.replaceAll("\\", "/"));
+	// ASAR 3.x resolves archive entries using the host's path separator.
+	const extract = (name) => asar.extractFile(archive, path.normalize(name));
 	for (const name of ["electron/main.cjs", "electron/preload.cjs", "dist/index.html", "dist/assets/icon.png",
 		"dist/backend/server.cjs", "dist/backend/dependencies.json", "dist/backend/THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_NOTICES.md"])
 		assert(files.includes("/" + name), `Missing packaged file: ${name}`);
 	assert(!files.some((name) => /(?:^|\/)(?:\.env(?:\..*)?|.*\.(?:session|p12|jks|keystore))$/i.test(name)), "Private files found in package");
-	const manifest = JSON.parse(asar.extractFile(archive, "package.json"));
+	const manifest = JSON.parse(extract("package.json"));
 	assert.equal(manifest.version, pkg.version);
 	assert.equal(manifest.main, "electron/main.cjs");
-	const dependencies = JSON.parse(asar.extractFile(archive, "dist/backend/dependencies.json"));
+	const dependencies = JSON.parse(extract("dist/backend/dependencies.json"));
 	for (const name of ["koa", "axios", "zod", "@jixun/qmweb-sign"])
 		assert(dependencies.some((dependency) => dependency.name === name), `Missing dependency notice: ${name}`);
 	const targetPlatform = existsSync(path.join(directory, "qqmui.exe")) ? "win32" : "linux";
@@ -83,7 +85,7 @@ export async function verifyDesktop(directory, arch = process.arch) {
 	const temporary = await mkdtemp(path.join(os.tmpdir(), "qqmui-package-"));
 	try {
 		const entry = path.join(temporary, "server.cjs");
-		await writeFile(entry, asar.extractFile(archive, "dist/backend/server.cjs"));
+		await writeFile(entry, extract("dist/backend/server.cjs"));
 		await smokeBackend(executable, entry, path.join(temporary, "auth"));
 	} finally { await rm(temporary, { recursive: true, force: true }); }
 	console.log(`${arch} packaged runtime/API, archive and dependency notices verified.`);
