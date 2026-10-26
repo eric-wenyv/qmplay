@@ -13,20 +13,17 @@
 	"scripts": {
 		"dev": "node scripts/dev.mjs",
 		"start": "node scripts/start.mjs",
-		"test": "node scripts/test.mjs",
-		"test:ci": "node scripts/test.mjs --ci",
+
 		"check": "node scripts/check.mjs",
-		"build": "node scripts/build.mjs",
-		"pack:dir": "pnpm build && electron-builder --dir",
-		"dist:linux": "node scripts/build-linux.mjs",
-		"dist:win": "node scripts/build-windows.mjs",
-		"dev:ui": "node scripts/serve.mjs",
-		"test:integration": "node scripts/test-integration.mjs",
-		"build:backend": "node scripts/build-backend.mjs",
+
+		"build": "node scripts/build.mjs && electron-builder --dir",
 		"build:linux": "node scripts/build-linux.mjs",
 		"build:windows": "node scripts/build-windows.mjs",
 		"build:android": "node scripts/build-android.mjs",
-		"install:android": "node scripts/build-android.mjs --install"
+
+		"test": "node scripts/test.mjs",
+		"test:ci": "node scripts/test.mjs --ci",
+		"test:integration": "node scripts/test-integration.mjs"
 	},
 	"devDependencies": {
 		"@electron/asar": "3.4.1",
@@ -103,13 +100,13 @@
 		"electron_mirror": "https://npmmirror.com/mirrors/electron/",
 		"electron_builder_binaries_mirror": "https://npmmirror.com/mirrors/electron-builder-binaries/"
 	},
-	"homepage": "https://github.com/eric-wenyv/qmui",
+	"homepage": "https://github.com/eric-wenyv/qmplay",
 	"repository": {
 		"type": "git",
-		"url": "git+ssh://git@github.com/eric-wenyv/qmui.git"
+		"url": "git+ssh://git@github.com/eric-wenyv/qmplay.git"
 	},
 	"bugs": {
-		"url": "https://github.com/eric-wenyv/qmui/issues"
+		"url": "https://github.com/eric-wenyv/qmplay/issues"
 	},
 	"desktopName": "qmplay.desktop"
 }

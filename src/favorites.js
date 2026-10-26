@@ -103,7 +103,7 @@ export class FavoriteSync {
     this.persist();
     this.onChange(this.state.accounts[uin]);
   }
-  set(track, liked) {
+  async set(track, liked) {
     if (this.busy.has(track.id)) return Promise.resolve(false);
     this.busy.add(track.id);
     const epoch = this.epoch;

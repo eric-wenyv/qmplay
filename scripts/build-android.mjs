@@ -120,8 +120,3 @@ await run(path.join(tools, "apksigner"), ["sign", "--ks", keystore, "--ks-key-al
 await run(path.join(tools, "apksigner"), ["verify", "--verbose", apk]);
 await writeFile(apk + ".sha256", `${createHash("sha256").update(await readFile(apk)).digest("hex")}  ${path.basename(apk)}\n`);
 console.log(`Android APK: ${apk}`);
-if (process.argv.includes("--install")) {
-	const adb = path.join(sdk, "platform-tools/adb");
-	await run(adb, ["install", "-r", apk]);
-	await run(adb, ["shell", "am", "start", "-n", "app.qmplay/.MainActivity"]);
-}

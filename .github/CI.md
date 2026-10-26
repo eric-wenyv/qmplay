@@ -1,82 +1,101 @@
 # CI 与发布
 
-工作流为 `.github/workflows/ci.yml`；所有第三方 Actions 固定到已解析的提交 SHA。
-Node/pnpm 安装集中在 `.github/actions/setup-project/action.yml`，依赖按锁文件安装，pnpm store 按操作系统、架构、Node 版本和锁文件隔离缓存，不缓存登录资料或签名密钥。
+工作流入口为 [workflows/ci.yml](workflows/ci.yml)，环境安装封装在 [actions/setup-project/action.yml](actions/setup-project/action.yml)，校验与发布脚本位于 [../scripts/ci/](../scripts/ci/)。修改流程时以这些文件为准。
 
-## 触发与检查
+## 触发条件
 
-| 触发 | 检查与打包 | Android 签名 | 发布 |
-| --- | --- | --- | --- |
-| Pull request，包括 fork | 完整流程 | 临时 CI 密钥，debug APK | 不发布 |
-| 推送 `main` / `master` | 完整流程 | 临时 CI 密钥，debug APK | 不发布 |
-| 手动运行 `CI` | 完整流程，可额外勾选 `live_api` | 临时 CI 密钥，debug APK | 不发布 |
-| 推送 `v<package.json version>` 标签 | 完整流程 | 固定正式密钥，非 debug APK | 全部平台成功后发布 |
+所有触发都会执行检查，通过后构建 Linux、Windows 和 Android 安装包；只有推送版本标签才会创建 GitHub Release。
 
-标签与 `package.json` 的版本必须完全一致；Android `versionCode` 必须为正整数。工作流先运行 actionlint，再在 Ubuntu 24.04 / Windows Server 2022 × Node.js 22 / 24 的四个组合上进行 JavaScript 语法检查、后端和 Android TypeScript 检查、全部离线测试及前端/后端构建。测试包括认证、收藏、播放器、Android 本地服务、桌面生命周期和发布流程；播放测试分别使用 LF 和 Windows CRLF 源码验证启动及播放，避免依赖 Git 的换行配置。JUnit 报告作为独立 artifact 保留 14 天。
-
-actionlint 会调用 PATH 中的 ShellCheck 检查 Bash 脚本；缺少 ShellCheck 时会跳过这项检查，因此 CI 会先确认它可用。本地复现工作流检查时，也应先安装 Go 和 ShellCheck，再在仓库根目录运行：
-
-```sh
-shellcheck --version
-go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 -color
-```
-
-普通提交和 PR 会取消同一分支过时的构建，版本标签的发布流程不会因新运行而被取消。建议将唯一汇总检查 `CI status` 设为必需的分支保护检查；它会在依赖失败或被取消时失败。
-
-`live_api` 只在手动勾选时调用现有 `pnpm test:integration`，验证真实 QQ 音乐搜索、分页、电台、推荐、歌词及可播放音频。日常测试使用本地服务和上游替身，不依赖 QQ 音乐网络和账号权限。
-
-## 平台产物与验证
-
-| Artifact | 内容 | 额外验证 |
+| 触发 | Android APK | GitHub Release |
 | --- | --- | --- |
-| `packages-windows-x64` | NSIS 安装版、portable EXE、SHA256 | PE 架构、ASAR/许可证、使用内置 Electron 启动 API、静默安装/卸载、保留用户数据 |
-| `packages-windows-arm64` | ARM64 NSIS 安装版、portable EXE、SHA256 | PE 架构、ASAR 文件及许可证；x64 runner 不运行 ARM64 程序 |
-| `packages-linux-x64` | deb、rpm、AppImage、SHA256 | 包元数据、ELF/ASAR/许可证、内置 API；解包 AppImage 后再次启动 API，无需 FUSE |
-| `packages-android-arm64` | APK、SHA256 | 签名、zipalign、包版本、最低 API、debug 状态、DEX、ARM64 ELF、内置 runtime.zip 及其校验和和许可证 |
+| Pull request，包括 fork | 临时 CI 密钥签名的 debug 包 | 不发布 |
+| 推送 `main` / `master` | 同上 | 不发布 |
+| 手动运行 `CI`（`workflow_dispatch`） | 同上，可勾选 `live_api` 追加真实上游测试 | 不发布，选择标签运行也一样 |
+| 推送 `v<package.json version>` 标签 | 固定正式密钥签名的非 debug 包 | 所有必需阶段成功后发布 |
 
-Actions artifacts 保留 14 天，已压缩安装包不再进行高压缩。桌面 API 冒烟测试验证健康检查、令牌拒绝与未登录状态，使用独立临时认证目录，不请求上游。ARM64 桌面包不在 x64 runner 上运行。Android 的现有离线运行时测试和 APK 检查不包含模拟器或真机 UI 测试；当前 APK 只有 ARM64 原生库，Node.js Mobile 18.20.4 仍要求 4 KB 内存页设备。
+普通分支和 PR 的新运行会取消同一分支/PR 的旧运行；标签运行不自动取消。
 
-桌面归档校验按宿主系统的路径分隔符调用 ASAR 提取接口。回归测试创建真实的嵌套 ASAR 归档，在 Linux 和 Windows 测试矩阵中验证依赖清单读取，避免跨平台路径差异导致已打包文件被误报为缺失。
+## 执行阶段
 
-Android 构建固定 JDK 17、API 35、build-tools 35.0.0、NDK 29.0.14206865；Node.js Mobile 压缩包固定版本和 SHA256，并在解压前校验。缓存只保存该压缩包。
+| Job | 运行内容 |
+| --- | --- |
+| `metadata` | ShellCheck + actionlint 检查工作流；验证版本格式、标签与 `package.json` 完全一致，以及 Android `versionCode` 为有效正整数。 |
+| `tests` | Ubuntu 24.04 / Windows Server 2022 × Node.js 22 / 24，共四个组合，依次运行 `pnpm check`、`pnpm test:ci`、`pnpm build`。 |
+| `linux` / `windows` / `android` | 等待测试矩阵全部通过，再并行打包、校验并上传各平台产物，见下表。 |
+| `live-api` | 仅手动勾选 `live_api` 时，在测试通过后运行 `pnpm test:integration`。 |
+| `release` | 仅版本标签推送执行，等待全部平台打包成功后收集产物并发布。 |
+| `status` | 始终汇总结果，显示为 `CI status`；必需阶段失败、取消或被跳过时失败，可选阶段失败或取消也会使其失败。 |
 
-## 正式签名配置
+日常测试使用本地服务和上游替身，覆盖认证、收藏、播放、Android 本地服务、桌面生命周期及发布流程；也覆盖 Windows CRLF 源码和 ASAR 路径分隔符差异。`live-api` 才会访问真实 QQ 音乐，验证搜索、分页、电台、推荐、歌词及可播放音频，结果受网络和账号权限影响。
 
-在仓库 Settings → Secrets and variables → Actions 配置：
+分支保护可将汇总检查 **`CI status`** 设为必需检查。
 
-改名后的签名变量统一使用 `QMPLAY_` 前缀；已配置旧版 `QQMUI_` Secrets 的仓库需将相同值配置到下列新名称。复用旧版签名密钥时，将 `QMPLAY_ANDROID_KEY_ALIAS` 设为该密钥原有的别名；本地构建可通过 `QMPLAY_ANDROID_KEYSTORE` 指定现有密钥文件。
+## 构建产物与验证
 
-| Secret | 必需 | 用途 |
+| Artifact | 安装包（均附 SHA256 校验文件） | 验证范围 |
 | --- | --- | --- |
-| `QMPLAY_ANDROID_KEYSTORE_BASE64` | 发布时必需 | PKCS12 签名密钥文件的 Base64 |
-| `QMPLAY_ANDROID_KEYSTORE_PASSWORD` | 发布时必需 | 密钥库密码 |
-| `QMPLAY_ANDROID_KEY_ALIAS` | 可选 | 密钥别名，默认 `qmplay` |
-| `QMPLAY_ANDROID_KEY_PASSWORD` | 可选 | 私钥密码，默认与密钥库密码相同 |
-| `WINDOWS_CERTIFICATE_BASE64` | 可选 | electron-builder 支持的 PFX 证书 Base64；未配置时 Windows 包不签名 |
-| `WINDOWS_CERTIFICATE_PASSWORD` | 可选 | PFX 密码 |
+| `packages-linux-x64` | deb、rpm、AppImage | 包元数据、ELF 架构、ASAR 与许可证、内置 API；解包 AppImage 后再次启动 API，无需 FUSE。 |
+| `packages-windows-x64` | NSIS 安装版、portable EXE | PE 架构、ASAR 与许可证、内置 API、静默安装/卸载及用户数据保留。 |
+| `packages-windows-arm64` | ARM64 NSIS 安装版、portable EXE | PE 架构、ASAR 与许可证；x64 runner 不运行 ARM64 程序。 |
+| `packages-android-arm64` | ARM64 APK；普通 CI 文件名带 `-debug` | 签名、zipalign、版本、最低 API、debug 状态、DEX、ARM64 ELF、`runtime.zip` 完整性及许可证。 |
 
-同一 Android 包名的后续版本必须沿用已分发 APK 的签名密钥，才能覆盖安装并保留应用数据。本地构建默认将密钥保存在 `~/.local/share/qmplay/android-signing.p12`。例如在 Linux 上通过 GitHub CLI 设置已有密钥，不将密钥内容写入终端：
+构建环境与缓存规则：
+
+- Node 默认使用 22，pnpm 版本取自 `package.json`（当前为 11.25.0）；依赖执行 `pnpm install --frozen-lockfile`。pnpm store 按系统、架构、Node 版本及锁文件隔离缓存。
+- Android 固定 JDK 17、API 35、build-tools 35.0.0、NDK 29.0.14206865。Node.js Mobile 压缩包固定版本与 SHA256，解压前校验，缓存仅保留压缩包。
+- 第三方 Actions 固定提交 SHA；缓存不保存登录资料或签名密钥。安装包 artifact 不额外压缩，所有包及独立 JUnit 报告保留 14 天。
+
+## 发布前配置签名
+
+在仓库 **Settings → Secrets and variables → Actions** 设置：
+
+| Secret | 要求与用途 |
+| --- | --- |
+| `QMPLAY_ANDROID_KEYSTORE_BASE64` | 发布必需，PKCS12 密钥库文件的 Base64。 |
+| `QMPLAY_ANDROID_KEYSTORE_PASSWORD` | 发布必需，密钥库密码。 |
+| `QMPLAY_ANDROID_KEY_ALIAS` | 可选，默认 `qmplay`。 |
+| `QMPLAY_ANDROID_KEY_PASSWORD` | 可选，默认与密钥库密码相同。 |
+| `WINDOWS_CERTIFICATE_BASE64` | 可选，electron-builder 支持的 PFX 证书 Base64；未配置时 Windows 包不签名。 |
+| `WINDOWS_CERTIFICATE_PASSWORD` | PFX 证书的密码，按证书需要配置。 |
+
+本地默认密钥为 `~/.local/share/qmplay/android-signing.p12`，也可用 `QMPLAY_ANDROID_KEYSTORE` 指定其他文件。首次正式发布后应妥善保存该签名密钥，后续版本继续使用，以支持覆盖安装并保留数据。
+
+例如在 Linux 上通过 GitHub CLI 配置已有密钥，密码通过交互输入：
 
 ```sh
 base64 -w0 ~/.local/share/qmplay/android-signing.p12 | gh secret set QMPLAY_ANDROID_KEYSTORE_BASE64
 gh secret set QMPLAY_ANDROID_KEYSTORE_PASSWORD
-# 自定义别名时再配置
+# 使用自定义密钥别名时再配置
 gh secret set QMPLAY_ANDROID_KEY_ALIAS
 ```
 
-发布密钥只提供给标签发布的 Android job；Windows 证书只提供给标签发布的 Windows 构建步骤。密钥临时解码到 runner temp，工作流结束前删除；只导出文件路径，不将密码或 Base64 写入 Actions 环境文件或 artifacts。缺少 Android 正式签名配置会直接令发布构建失败，不生成临时密钥替代。普通 CI 的预览密钥每次运行独立，因此预览 APK 不能保证覆盖安装之前的预览或正式版本。
+正式密钥仅用于标签发布：Android 密钥临时写入 runner temp 并在结束时清理，只向环境文件导出路径；Windows 证书只传给 Windows 构建步骤。密码和 Base64 不写入环境文件或 artifacts。缺少 Android 必需 Secrets 会使发布失败。普通 CI 使用每次运行独立的临时密钥，预览 APK 不保证能覆盖安装之前的预览或正式版本。
 
-## 版本发布
+## 发布步骤
 
-1. 修改 `package.json` 的 `version`，同步依赖变更时更新并提交 `pnpm-lock.yaml`；Android 版本更新还需递增 `android/AndroidManifest.xml` 的 `android:versionCode`。APK 的 `versionName` 由构建脚本从 `package.json` 注入。
-2. 合并通过 CI 的改动后创建相同版本的标签，例如版本为 `1.1.0` 时：
+1. 修改 `package.json` 的 `version`；依赖有变更时同步提交 `pnpm-lock.yaml`。Android 版本更新还需递增 `android/AndroidManifest.xml` 中的 `android:versionCode`，APK 的 `versionName` 会自动取自 `package.json`。
+2. 合并并确认 CI 通过，再推送与版本一致的标签。例如版本为 `1.1.0`：
 
    ```sh
    git tag v1.1.0
    git push origin v1.1.0
    ```
 
-3. 等待四个测试组合以及全部平台打包、冒烟检查通过。Release job 只从同一次工作流下载 `packages-*` 产物，要求八个安装包及四份对应校验文件齐全，重新验证每个 SHA256，并生成汇总 `SHA256SUMS` 和记录版本、提交、Android versionCode、架构、文件大小及哈希的 `build-manifest.json`。
-4. 工作流创建 draft Release，上传全部 14 个附件并成功后才公开发布。上传中断时保留 draft，可重跑失败的 job；已公开的 Release 不会被覆盖。版本包含 `-`（例如 `1.1.0-beta.1`）时标记为 prerelease，并且不更新 latest。
+3. 工作流等待四个测试组合及所有平台打包校验通过，从**同一次运行**下载 `packages-*`，验证八个安装包和四份校验文件，生成汇总 `SHA256SUMS` 与 `build-manifest.json`（版本、提交、Android versionCode、架构、大小及哈希）。
+4. 创建 draft Release，全部 14 个附件上传成功后才公开。预发布版本（如 `1.1.0-beta.1`）标记为 prerelease，不更新 latest。
 
-无需额外 PAT：仅 Release job 给 `GITHUB_TOKEN` 授予 `contents: write`，其他 job 使用只读权限。`workflow_dispatch` 即使选择标签也不会发布。若 artifacts 已超过保留期，应重跑完整工作流后重试发布。
+仅 `release` job 获得 `GITHUB_TOKEN` 的 `contents: write` 权限，其余 job 为只读，无需额外 PAT。
+
+## 本地检查与失败处理
+
+在根目录运行 `pnpm check`、`pnpm test:ci`、`pnpm build` 可复现测试矩阵的主要步骤。工作流语法检查另需 Go 和 PATH 中的 ShellCheck；缺少 ShellCheck 时 actionlint 会跳过 Bash 检查，因此先确认它可用：
+
+```sh
+shellcheck --version
+go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 -color
+node scripts/ci/release.mjs --metadata
+```
+
+- **标签或签名校验失败**：核对版本、Android versionCode，以及 Secrets 名称、密码和密钥别名。
+- **附件上传中断**：保留的 draft 可通过重跑失败 job 继续发布；artifact 超过 14 天保留期时，重跑完整工作流。
+- **Release 已公开**：工作流拒绝覆盖，修复后使用新的版本与标签。

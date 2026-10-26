@@ -12,14 +12,18 @@ export function formatTime(seconds) {
 
 export class PlayerSession {
 	constructor(random = Math.random) {
+  	this.random = random;
+
+  	this.history = [];
 		this.queue = [];
+		this.order = "repeat";
+
 		this.source = null;
+
+		// curr music
 		this.index = 0;
 		this.elapsed = 0;
 		this.playing = false;
-		this.order = "repeat";
-		this.history = [];
-		this.random = random;
 	}
 
 	get current() {

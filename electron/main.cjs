@@ -22,7 +22,7 @@ app.setName("qmplay");
 if (process.platform === "win32") app.setAppUserModelId("app.qmplay");
 // Reuse an existing desktop profile to preserve login cookies and local playback state.
 const appData = app.getPath("appData");
-const userData = ["qmplay", "qqmui", "Interlude", "间奏", "interlude-player"]
+const userData = ["qmplay"]
 	.map((name) => path.join(appData, name))
 	.find((directory) => fs.existsSync(directory)) || path.join(appData, "qmplay");
 fs.mkdirSync(userData, { recursive: true });
