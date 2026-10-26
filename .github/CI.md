@@ -14,6 +14,13 @@ Node/pnpm 安装集中在 `.github/actions/setup-project/action.yml`，依赖按
 
 标签与 `package.json` 的版本必须完全一致；Android `versionCode` 必须为正整数。工作流先运行 actionlint，再在 Ubuntu 24.04 / Windows Server 2022 × Node.js 22 / 24 的四个组合上进行 JavaScript 语法检查、后端和 Android TypeScript 检查、全部离线测试及前端/后端构建。测试包括认证、收藏、播放器、Android 本地服务、桌面生命周期和发布流程；JUnit 报告作为独立 artifact 保留 14 天。
 
+actionlint 会调用 PATH 中的 ShellCheck 检查 Bash 脚本；缺少 ShellCheck 时会跳过这项检查，因此 CI 会先确认它可用。本地复现工作流检查时，也应先安装 Go 和 ShellCheck，再在仓库根目录运行：
+
+```sh
+shellcheck --version
+go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 -color
+```
+
 普通提交和 PR 会取消同一分支过时的构建，版本标签的发布流程不会因新运行而被取消。建议将唯一汇总检查 `CI status` 设为必需的分支保护检查；它会在依赖失败或被取消时失败。
 
 `live_api` 只在手动勾选时调用现有 `pnpm test:integration`，验证真实 QQ 音乐搜索、分页、电台、推荐、歌词及可播放音频。日常测试使用本地服务和上游替身，不依赖 QQ 音乐网络和账号权限。
