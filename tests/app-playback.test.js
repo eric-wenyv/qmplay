@@ -6,11 +6,10 @@ import { PlayerSession, formatTime, orderLabels } from "../src/player.js";
 import { AudioTransport } from "../src/audio.js";
 import { rememberArtist } from "../src/storage.js";
 
-const source = readFileSync(new URL("../src/app.js", import.meta.url), "utf8")
-	.replace(/^import .*;\n/gm, "");
+const source = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
 const songs = ["a", "b", "c"].map((id) => ({ id, title: id, duration: 200 }));
 
-function app(preferences = {}, { mobile = false, desktop = false } = {}) {
+function app(preferences = {}, { mobile = false, desktop = false, sourceText = source } = {}) {
 	const elements = new Map();
 	const media = new EventTarget();
 	media.matches = mobile;
@@ -107,7 +106,7 @@ function app(preferences = {}, { mobile = false, desktop = false } = {}) {
 		IntersectionObserver: class { disconnect() {} observe() {} },
 		setInterval() {}, setTimeout, clearTimeout,
 	});
-	vm.runInContext(source, context);
+	vm.runInContext(sourceText.replace(/^import .*;\r?\n/gm, ""), context);
 	vm.runInContext('authReady = true; activeUser = { uin: "100" }', context);
 	const state = vm.runInContext("({ session, transport, audio, liked, favorites, switchSource, showRadio, showSearch, renderArtists, showArtistAlbums, loadMoreAlbums, renderQueue, setView, loadMore, advance, startPlayer, refreshFavorites, showLyrics, returnToPlayer })", context);
 	for (const song of songs) state.liked.set(song.id, song);
@@ -130,6 +129,16 @@ function app(preferences = {}, { mobile = false, desktop = false } = {}) {
 }
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+for (const [name, newline] of [["LF", "\n"], ["CRLF", "\r\n"]]) {
+	test(`the playback harness boots and plays with ${name} source line endings`, async () => {
+		const player = app({}, { sourceText: source.replace(/\r?\n/g, newline) });
+		await player.switchSource("liked", null);
+		assert.equal(player.session.current.id, "a");
+		assert.equal(player.audio.paused, false);
+		assert.deepEqual(player.playbackRequests, ["a"]);
+	});
+}
 
 test("personal radio is first on every platform, preserves browsing playback and continues with new batches", async () => {
 	for (const layout of [{}, { mobile: true }, { mobile: true, desktop: true }]) {
