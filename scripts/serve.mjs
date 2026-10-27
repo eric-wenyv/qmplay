@@ -127,17 +127,24 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "HEAD") res.end();
   else fs.createReadStream(filename).pipe(res);
 });
+let stopping = false;
+function shutdown() {
+  if (stopping) return;
+  stopping = true;
+  server.close();
+  server.closeAllConnections();
+  backend.stop();
+  void frontend.dispose();
+  if (process.connected) process.disconnect();
+}
+
 server.on("error", (error) => {
   console.error(error.message);
   process.exitCode = 1;
-  backend.stop();
-  void frontend.dispose();
+  shutdown();
 });
+for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, shutdown);
+// Windows child.kill("SIGTERM") terminates immediately without running signal handlers.
+// An owning Node launcher can close its IPC channel to request the same cleanup.
+if (process.connected) process.once("disconnect", shutdown);
 server.listen(port, "127.0.0.1", () => console.log(`qmplay: http://127.0.0.1:${port}`));
-for (const signal of ["SIGINT", "SIGTERM"])
-  process.once(signal, () => {
-    server.closeAllConnections();
-    server.close();
-    backend.stop();
-    void frontend.dispose();
-  });
