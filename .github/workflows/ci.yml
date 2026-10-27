@@ -64,7 +64,15 @@ jobs:
         run: pnpm check
       - name: Offline unit and integration tests
         id: tests
-        run: pnpm test:ci
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            export QMPLAY_TEST_BROWSER="${CHROME_BIN:-/usr/bin/google-chrome}"
+            "$QMPLAY_TEST_BROWSER" --version
+            dbus-run-session -- pnpm test:ci
+          else
+            pnpm test:ci
+          fi
       - name: Build renderer and bundled backend
         run: pnpm build
       - name: Upload JUnit report

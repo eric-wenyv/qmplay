@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { FavoritesView } from "../src/ui/CatalogViews.js";
@@ -12,16 +13,20 @@ import { FavoritesView } from "../src/ui/CatalogViews.js";
 // jsdom has no layout engine; use an installed Chromium browser without adding a dependency.
 const browser =
   process.env.QMPLAY_TEST_BROWSER ||
+  process.env.CHROME_BIN ||
   ["google-chrome", "chromium", "chromium-browser"].find(
     (command) => spawnSync(command, ["--version"], { timeout: 5000 }).status === 0,
   );
+const runBrowser = promisify(execFile);
 
 test(
   "favorites keep long titles and artists within the list while allowing vertical scrolling",
   {
     skip: !browser && "Install Chrome/Chromium or set QMPLAY_TEST_BROWSER for layout checks",
+    timeout: 40000,
   },
   async (t) => {
+    t.diagnostic(`Layout browser: ${browser}`);
     const directory = await mkdtemp(path.join(os.tmpdir(), "qmplay-layout-"));
     t.after(() => rm(directory, { recursive: true, force: true }));
     const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
@@ -81,14 +86,19 @@ test(
     </script></body></html>`;
     const fixture = path.join(directory, "favorites.html");
     await writeFile(fixture, html);
-    const output = execFileSync(
+    const { stdout: output } = await runBrowser(
       browser,
       [
         "--headless",
         "--no-sandbox",
         "--disable-gpu",
         "--disable-background-networking",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--password-store=basic",
+        "--disable-dev-shm-usage",
         `--user-data-dir=${path.join(directory, "profile")}`,
+        "--timeout=10000",
         "--virtual-time-budget=1000",
         "--dump-dom",
         pathToFileURL(fixture).href,
@@ -96,10 +106,16 @@ test(
       {
         encoding: "utf8",
         timeout: 30000,
+        killSignal: "SIGKILL",
         maxBuffer: 5 * 1024 * 1024,
         stdio: ["ignore", "pipe", "pipe"],
       },
-    );
+    ).catch((error) => {
+      throw new Error(
+        `Layout browser ${browser} failed (${error.code || error.signal}):\n${error.stderr || error.message}`,
+        { cause: error },
+      );
+    });
     const result = output.match(/<pre id="layout-results">([^<]+)<\/pre>/);
     assert(result, "Browser did not report layout measurements");
     const measurements = JSON.parse(result[1]);
