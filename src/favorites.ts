@@ -1,5 +1,6 @@
 import type { StorageLike, Track } from "./contracts.js";
 import { validTrack } from "./storage.js";
+
 export interface FavoriteSyncOptions {
   provider: {
     getFavorites(): Promise<Track[]>;
@@ -14,12 +15,14 @@ interface FavoriteCache {
   accounts: Record<string, Track[]>;
   migration: { owner: string; tracks: Track[]; done: boolean };
 }
+
 const record = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
 const cacheKey = "qmplay-account-favorites-v1";
 const legacyCacheKey = "interlude-account-favorites-v1";
+
 export class FavoriteSync {
   readonly provider: FavoriteSyncOptions["provider"];
   readonly storage: StorageLike;
