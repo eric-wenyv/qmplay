@@ -74,7 +74,10 @@ export function usePlatform(app: MusicApplication, snapshot: AppSnapshot) {
   }, [app]);
 
   useEffect(() => {
-    document.body.classList.toggle("auth-gated", snapshot.auth.state !== "ready");
+    document.body.classList.toggle(
+      "auth-gated",
+      snapshot.auth.state !== "checking" && snapshot.auth.state !== "ready",
+    );
   }, [snapshot.auth.state]);
 
   useEffect(() => {

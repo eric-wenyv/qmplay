@@ -127,6 +127,8 @@ export class Application implements MusicApplication {
         now: this.now,
       },
     );
+    // Show the saved paused player immediately; authenticated requests start after validation.
+    this.playback.restore(preferences, { load: false });
     this.favorites = new FavoriteSync({
       provider: options.provider,
       storage: options.storage,

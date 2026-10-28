@@ -1,6 +1,11 @@
-import { useLayoutEffect, useRef } from "react";
+import { useRef, type CSSProperties } from "react";
 import type { AppSnapshot, MusicApplication, NavigationMode } from "../contracts.js";
 import { Icon } from "./Icon.js";
+import { useNavigationMotion } from "./useNavigationMotion.js";
+import { useNavigationDrag } from "./useNavigationDrag.js";
+
+const mobileModes = ["radio", "liked", "artist"] as const;
+const menuModes = ["home", "radio", "liked", "artist"] as const;
 
 const labels: Record<NavigationMode, string> = {
   home: "主页",
@@ -29,30 +34,33 @@ const pageModes = {
 
 export function Navigation({ app, snapshot }: { app: MusicApplication; snapshot: AppSnapshot }) {
   const { navigation, auth } = snapshot;
-  const control = useRef<HTMLDivElement>(null);
   const selected = navigation.mobile ? navigation.mobileMode : pageModes[navigation.view];
-  useLayoutEffect(() => {
-    const node = control.current;
-    const row = node?.querySelector<HTMLElement>('.mode-option[aria-checked="true"]:not([hidden])');
-    const menu = node?.querySelector<HTMLElement>("#mode-menu");
-    const toggle = node?.querySelector<HTMLElement>("#mode-toggle");
-    if (!node || !row || !menu || !toggle) return;
-    node.style.setProperty(
-      "--mode-selected-offset",
-      `${row.offsetTop + menu.offsetTop - toggle.offsetTop}px`,
-    );
-    node.style.setProperty(
-      "--mode-selected-x",
-      `${row.offsetLeft + menu.offsetLeft - toggle.offsetLeft}px`,
-    );
-  }, [selected, navigation.mobile, navigation.menuOpen]);
+  const selectedStep =
+    selected === "queue"
+      ? 0
+      : navigation.mobile
+        ? 3 - menuModes.indexOf(selected)
+        : menuModes.indexOf(selected);
+  const control = useRef<HTMLDivElement>(null);
   const choose = (mode: NavigationMode) => {
-    app.setMenu(false);
     if (mode === "home") app.returnToPlayer();
     else if (mode === "artist") app.showSearch();
     else if (mode === "radio") void app.showRadio();
     else if (mode === "liked") app.showLiked();
   };
+  const { dragging, preview, settled, handlers } = useNavigationDrag({
+    control,
+    enabled: navigation.mobile && auth.state === "ready",
+    open: navigation.menuOpen,
+    reveal: () => app.setMenu(true),
+    choose,
+  });
+  useNavigationMotion(control, navigation.menuOpen, selected, navigation.mobile, dragging, settled);
+  const slider = navigation.mobile && navigation.menuOpen && (selected !== "queue" || dragging);
+  const sliderIndex = Math.max(
+    0,
+    mobileModes.findIndex((mode) => mode === (preview || selected)),
+  );
   return (
     <header className="topbar" inert={!navigation.mobile && navigation.queueOpen}>
       <div
@@ -60,74 +68,102 @@ export function Navigation({ app, snapshot }: { app: MusicApplication; snapshot:
         className="mode-control"
         data-open={navigation.menuOpen}
         data-selection={selected !== "queue"}
+        data-dragging={dragging}
+        style={{ "--mode-selected-step": selectedStep } as CSSProperties}
         inert={auth.state !== "ready"}
+        {...handlers}
       >
         <button
           id="mode-toggle"
           className="mode-toggle"
           type="button"
-          aria-label={`切换页面：${labels[selected]}`}
-          aria-haspopup="menu"
-          aria-expanded={navigation.menuOpen}
+          role={slider ? "slider" : undefined}
+          aria-label={slider ? "滑动切换页面" : `切换页面：${labels[selected]}`}
+          aria-valuemin={slider ? 0 : undefined}
+          aria-valuemax={slider ? 2 : undefined}
+          aria-valuenow={slider ? sliderIndex : undefined}
+          aria-valuetext={slider ? labels[preview || selected] : undefined}
+          aria-orientation={slider ? "horizontal" : undefined}
+          aria-haspopup={slider ? undefined : "menu"}
+          aria-expanded={slider ? undefined : navigation.menuOpen}
           aria-controls="mode-menu"
           data-tip={labels[selected]}
-          inert={navigation.menuOpen}
-          aria-hidden={navigation.menuOpen}
-          onClick={() => app.setMenu(!navigation.menuOpen)}
+          inert={navigation.menuOpen && !slider}
+          aria-hidden={navigation.menuOpen && !slider}
+          onClick={() => (slider ? choose(selected) : app.setMenu(!navigation.menuOpen))}
+          onKeyDown={(event) => {
+            if (!slider || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            const index =
+              event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? 2
+                  : Math.max(0, Math.min(2, sliderIndex + (event.key === "ArrowRight" ? 1 : -1)));
+            choose(mobileModes[index]!);
+          }}
         >
           <Icon id="mode-icon" name={icons[selected]} />
           <span className="mode-dot" aria-hidden="true" />
         </button>
-        <div
-          id="mode-menu"
-          className="mode-menu"
-          role="menu"
-          aria-label="页面导航"
-          aria-hidden={!navigation.menuOpen}
-          inert={!navigation.menuOpen}
-          onKeyDown={(event) => {
-            if (
-              !["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(
-                event.key,
+        <div className="mode-frame">
+          <div
+            id="mode-menu"
+            className="mode-menu"
+            role="menu"
+            aria-label="页面导航"
+            aria-hidden={!navigation.menuOpen}
+            inert={!navigation.menuOpen}
+            onKeyDown={(event) => {
+              if (
+                !["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(
+                  event.key,
+                )
               )
-            )
-              return;
-            event.preventDefault();
-            const buttons = [
-              ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                ".mode-option:not([hidden])",
-              ),
-            ];
-            const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
-            const next =
-              event.key === "Home"
-                ? 0
-                : event.key === "End"
-                  ? buttons.length - 1
-                  : (index +
-                      (["ArrowDown", "ArrowRight"].includes(event.key) ? 1 : -1) +
-                      buttons.length) %
-                    buttons.length;
-            buttons[next]?.focus();
-          }}
-        >
-          {(["home", "radio", "liked", "artist"] as const).map((mode) => (
-            <button
-              key={mode}
-              className="mode-option"
-              type="button"
-              data-mode={mode}
-              role="menuitemradio"
-              aria-checked={selected === mode}
-              aria-label={labels[mode]}
-              data-tip={labels[mode]}
-              hidden={navigation.mobile && mode === "home"}
-              onClick={() => choose(mode)}
-            >
-              <Icon name={icons[mode]} />
-              <span className="mode-dot" />
-            </button>
-          ))}
+                return;
+              event.preventDefault();
+              const buttons = [
+                ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                  ".mode-option:not([hidden])",
+                ),
+              ];
+              const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+              const next =
+                event.key === "Home"
+                  ? 0
+                  : event.key === "End"
+                    ? buttons.length - 1
+                    : (index +
+                        (["ArrowDown", "ArrowRight"].includes(event.key) ? 1 : -1) +
+                        buttons.length) %
+                      buttons.length;
+              buttons[next]?.focus();
+            }}
+          >
+            {menuModes.map((mode, index) => {
+              const step = navigation.mobile ? 3 - index : index;
+              const revealStep = step < selectedStep ? step + 1 : step;
+              return (
+                <button
+                  key={mode}
+                  className="mode-option"
+                  type="button"
+                  data-mode={mode}
+                  role="menuitemradio"
+                  aria-checked={selected === mode}
+                  data-preview={preview === mode}
+                  style={{ "--mode-reveal-step": revealStep } as CSSProperties}
+                  aria-label={labels[mode]}
+                  data-tip={labels[mode]}
+                  hidden={navigation.mobile && mode === "home"}
+                  onClick={() => choose(mode)}
+                >
+                  <Icon name={icons[mode]} />
+                  <span className="mode-dot" />
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
       <div className="window-controls" aria-label="窗口控制" hidden={!window.qmplayDesktop}>

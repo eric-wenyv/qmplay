@@ -6,7 +6,7 @@ export function AuthView({ app, auth }: { app: MusicApplication; auth: AuthState
       id="auth-view"
       className="auth-view"
       aria-label="QQ 音乐登录"
-      hidden={auth.state === "ready"}
+      hidden={auth.state === "checking" || auth.state === "ready"}
     >
       <h1>qmplay</h1>
       <p

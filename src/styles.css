@@ -165,14 +165,23 @@ svg {
   -webkit-app-region: drag;
 }
 .mode-control {
+  --mode-frame-duration: 80ms;
+  --mode-step-duration: 80ms;
+  --mode-unroll-duration: calc(3 * var(--mode-step-duration));
+  --mode-icons-delay: calc(
+    var(--mode-frame-duration) + var(--mode-selected-step, 0) * var(--mode-step-duration)
+  );
   position: relative;
   width: var(--mode-size);
   height: var(--mode-size);
   isolation: isolate;
   -webkit-app-region: no-drag;
 }
-.mode-control::before {
-  content: "";
+.mode-control[data-open="true"] {
+  --mode-frame-duration: 40ms;
+  --mode-step-duration: 40ms;
+}
+.mode-frame {
   position: absolute;
   top: calc(-1 * var(--mode-padding));
   left: calc(-1 * var(--mode-padding));
@@ -183,16 +192,20 @@ svg {
   border-radius: var(--corner-radius);
   background: var(--cover-base);
   opacity: 0;
-  pointer-events: none;
+  overflow: hidden;
+  box-shadow: 0 10px 24px -8px #00000055;
   transition:
-    height 0.32s cubic-bezier(0.2, 0.8, 0.2, 1),
-    opacity 0.18s,
-    box-shadow 0.28s;
+    opacity var(--mode-frame-duration) ease,
+    width 0s var(--mode-frame-duration),
+    height 0s var(--mode-frame-duration);
 }
-.mode-control[data-open="true"]::before {
+.mode-control[data-open="true"] .mode-frame {
   height: calc(4 * var(--mode-size) + 5 * var(--mode-padding));
   opacity: 1;
-  box-shadow: 0 10px 24px -8px #00000055;
+  transition:
+    opacity var(--mode-frame-duration) ease,
+    width var(--mode-unroll-duration) linear var(--mode-frame-duration),
+    height var(--mode-unroll-duration) linear var(--mode-frame-duration);
 }
 .mode-toggle {
   position: relative;
@@ -204,9 +217,9 @@ svg {
   border-radius: var(--corner-radius);
   background: #ffffff1f;
   color: #ffffff;
-  transform: translateY(0);
+  opacity: 1;
   transition:
-    transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity var(--mode-frame-duration),
     background 0.2s,
     box-shadow 0.2s;
 }
@@ -215,8 +228,10 @@ svg {
   height: 22px;
 }
 .mode-control[data-open="true"] .mode-toggle {
-  transform: translateY(var(--mode-selected-offset, 0px));
   pointer-events: none;
+}
+.mode-control[data-open="true"][data-selection="false"] .mode-toggle {
+  opacity: 0;
 }
 .icon-button {
   position: relative;
@@ -267,8 +282,8 @@ svg {
 }
 .mode-menu {
   position: absolute;
-  left: calc(-1 * var(--mode-padding));
-  top: calc(-1 * var(--mode-padding));
+  left: -1px;
+  top: -1px;
   width: calc(var(--mode-size) + 2 * var(--mode-padding));
   padding: var(--mode-padding);
   display: flex;
@@ -278,14 +293,14 @@ svg {
   opacity: 0;
   pointer-events: none;
   transition:
-    opacity 0.18s,
-    visibility 0s 0.32s;
+    opacity 60ms,
+    visibility 0s var(--mode-frame-duration);
 }
 .mode-control[data-open="true"] .mode-menu {
   visibility: visible;
   opacity: 1;
   pointer-events: auto;
-  transition-delay: 0.04s, 0s;
+  transition-delay: 0s;
 }
 .mode-option {
   position: relative;
@@ -295,7 +310,17 @@ svg {
   display: grid;
   place-items: center;
   color: #ffffffad;
+  opacity: 0;
   transition:
+    opacity 0s,
+    background 0.2s,
+    color 0.2s;
+}
+.mode-control[data-open="true"] .mode-option {
+  opacity: 1;
+  transition:
+    opacity 0s
+      calc(var(--mode-frame-duration) + var(--mode-reveal-step) * var(--mode-step-duration)),
     background 0.2s,
     color 0.2s;
 }
@@ -308,10 +333,12 @@ svg {
 .mode-option:focus-visible {
   outline-offset: -3px;
 }
-/* The persistent display button draws the selected row and slides between positions. */
 .mode-option[aria-checked="true"] {
   color: #ffffff;
   background: transparent;
+}
+.mode-option[data-preview="true"] {
+  color: #ffffff;
 }
 .mode-option[aria-checked="true"] > .icon-slot,
 .mode-option[aria-checked="true"] > .mode-dot {
@@ -335,10 +362,36 @@ svg {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
   padding: 0;
+}
+.main-stage > * {
+  grid-area: 1 / 1;
+}
+/* Keep both pages in the same grid cell while the outgoing page fades away. */
+@supports (transition-behavior: allow-discrete) {
+  .main-stage > * {
+    animation: none !important;
+    opacity: 1;
+    transform: translateY(0);
+    transition:
+      opacity 0.24s ease,
+      transform 0.24s ease,
+      display 0.24s allow-discrete;
+  }
+  .main-stage > [hidden] {
+    opacity: 0;
+    transform: translateY(-8px);
+    pointer-events: none;
+  }
+  @starting-style {
+    .main-stage > :not([hidden]) {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
 }
 .listening-view {
   width: 64%;
@@ -1052,7 +1105,10 @@ body.desktop {
 .is-searching .timeline,
 .is-searching .transport {
   opacity: 0.5;
-  transition: opacity 0.2s;
+}
+.timeline,
+.transport {
+  transition: opacity 0.24s ease;
 }
 .is-searching .transport:hover {
   opacity: 1;
@@ -1378,25 +1434,52 @@ body.desktop {
     height: var(--mode-size);
     -webkit-app-region: no-drag;
   }
-  body:not(.desktop) .mode-control::before {
+  body:not(.desktop) .mode-control {
+    --mode-unroll-duration: calc(2 * var(--mode-step-duration));
+  }
+  body:not(.desktop) .mode-frame {
     left: auto;
     right: calc(-1 * var(--mode-padding));
-    transition:
-      width 0.32s cubic-bezier(0.2, 0.8, 0.2, 1),
-      opacity 0.18s;
   }
-  body:not(.desktop) .mode-control[data-open="true"]::before {
+  body:not(.desktop) .mode-control[data-open="true"] .mode-frame {
     width: calc(3 * var(--mode-size) + 4 * var(--mode-padding));
     height: calc(var(--mode-size) + 2 * var(--mode-padding));
   }
   body:not(.desktop) .mode-menu {
     left: auto;
-    right: calc(-1 * var(--mode-padding));
+    right: -1px;
     width: calc(3 * var(--mode-size) + 4 * var(--mode-padding));
     flex-direction: row;
   }
+  body:not(.desktop) .mode-toggle {
+    touch-action: none;
+  }
   body:not(.desktop) .mode-control[data-open="true"] .mode-toggle {
-    transform: translate(var(--mode-selected-x, 0px), var(--mode-selected-offset, 0px));
+    pointer-events: auto;
+  }
+  body:not(.desktop) .mode-control[data-open="true"] .mode-toggle > .icon-slot,
+  body:not(.desktop) .mode-control[data-open="true"] .mode-toggle > .mode-dot {
+    opacity: 0;
+    transition: opacity 0s var(--mode-icons-delay, var(--mode-frame-duration));
+  }
+  body:not(.desktop) .mode-option[aria-checked="true"] > .icon-slot {
+    opacity: 1;
+  }
+  body:not(.desktop) .mode-control[data-dragging="true"] .mode-frame {
+    width: calc(3 * var(--mode-size) + 4 * var(--mode-padding));
+    transition: none;
+  }
+  body:not(.desktop) .mode-control[data-dragging="true"] .mode-toggle {
+    opacity: 1;
+  }
+  body:not(.desktop) .mode-control[data-dragging="true"] .mode-option {
+    opacity: 1;
+    transition: none;
+  }
+  body:not(.desktop) .mode-control[data-dragging="true"] .mode-menu,
+  body:not(.desktop) .mode-control[data-dragging="true"] .mode-toggle > .icon-slot,
+  body:not(.desktop) .mode-control[data-dragging="true"] .mode-toggle > .mode-dot {
+    transition: none;
   }
   body:not(.desktop) .main-stage {
     padding: 8px 0 0;
@@ -1586,9 +1669,6 @@ body.desktop {
 
   body:not(.desktop) .mode-option[data-mode="home"] {
     display: none;
-  }
-  body:not(.desktop) .mode-control[data-open="true"][data-selection="false"] .mode-toggle {
-    opacity: 0;
   }
   body:not(.desktop) .mode-backdrop {
     position: absolute;

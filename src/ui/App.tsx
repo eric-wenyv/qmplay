@@ -21,6 +21,7 @@ export function App({ app }: { app: MusicApplication }) {
   const { navigation, playback, catalog, library, requests } = snapshot;
   const desktopQueue = !navigation.mobile && navigation.queueOpen;
   const modalMenu = navigation.mobile && navigation.menuOpen;
+  const controlsInert = modalMenu || desktopQueue || snapshot.auth.state !== "ready";
   // Keep feature trees mounted while reusing their elements until consumed data changes.
   // A media timeupdate therefore never walks an unchanged catalogue or library.
   const navigationView = useMemo(
@@ -167,7 +168,7 @@ export function App({ app }: { app: MusicApplication }) {
         className="main-stage"
         aria-label="正在播放"
         aria-busy={snapshot.requests.source}
-        inert={modalMenu || desktopQueue}
+        inert={controlsInert}
         {...swipe}
       >
         {playerView}
@@ -179,7 +180,7 @@ export function App({ app }: { app: MusicApplication }) {
         {lyricsView}
         {navigation.mobile && queue}
       </section>
-      <PlaybackControls app={app} snapshot={snapshot} inert={modalMenu || desktopQueue} />
+      <PlaybackControls app={app} snapshot={snapshot} inert={controlsInert} />
       <div
         id="notice"
         className="notice"

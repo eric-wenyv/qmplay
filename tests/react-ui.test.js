@@ -644,6 +644,78 @@ test("React restores an authenticated paused session and navigation preserves ac
   assert.equal(player.app.getSnapshot().playback.source.hasMore, false);
 });
 
+for (const mobile of [false, true]) {
+  test(`React shows the saved player throughout background login checks (${mobile ? "mobile" : "desktop"})`, async (t) => {
+    let resolveStatus, resolveFavorites;
+    const status = new Promise((resolve) => (resolveStatus = resolve));
+    const favorites = new Promise((resolve) => (resolveFavorites = resolve));
+    const player = await mount(t, {
+      mobile,
+      provider: {
+        getAuthStatus: () => status,
+        getFavorites: () => favorites,
+      },
+    });
+    const cover = document.querySelector("#cover-image");
+    const assertPlayerVisible = () => {
+      assert.equal(player.app.getSnapshot().auth.state, "checking");
+      assert.equal(document.querySelector("#auth-view").hidden, true);
+      assert.equal(document.body.classList.contains("auth-gated"), false);
+      assert.equal(document.querySelector("#listening-view").hidden, false);
+      assert.equal(document.querySelector("#track-title").textContent, "歌曲 a");
+      assert.equal(document.querySelector("#elapsed").textContent, "0:12");
+      assert.equal(document.querySelector(".main-stage").hasAttribute("inert"), true);
+      assert.equal(document.querySelector(".player-footer").hasAttribute("inert"), true);
+      assert.equal(player.audio.loads, 0);
+      assert.equal(player.audio.paused, true);
+      assert.equal(player.requests.includes("qr"), false);
+    };
+    assertPlayerVisible();
+    await keyboard(document.body, " ", { code: "Space" });
+    assert.equal(player.audio.paused, true);
+    await act(async () => {
+      resolveStatus({ authenticated: true, user: { uin: "100" } });
+      await tick();
+    });
+    assertPlayerVisible(); // Slow cloud favorites must not reintroduce a login screen.
+    await act(async () => {
+      resolveFavorites([]);
+      await tick();
+    });
+    assert.equal(player.app.getSnapshot().auth.state, "ready");
+    assert.equal(document.querySelector("#cover-image"), cover);
+    assert.equal(document.querySelector("#auth-view").hidden, true);
+    assert.equal(document.querySelector(".main-stage").hasAttribute("inert"), false);
+    assert.equal(document.querySelector(".player-footer").hasAttribute("inert"), false);
+    assert.equal(player.audio.loads, 1);
+    assert.equal(player.audio.paused, true);
+  });
+}
+
+test("React replaces the initial player with QR login only after a missing session is confirmed", async (t) => {
+  let resolveStatus;
+  const player = await mount(t, {
+    queue: [],
+    provider: {
+      getAuthStatus: () => new Promise((resolve) => (resolveStatus = resolve)),
+    },
+  });
+  assert.equal(document.querySelector("#empty-view").hidden, false);
+  assert.equal(document.querySelector("#auth-view").hidden, true);
+  assert.equal(document.body.classList.contains("auth-gated"), false);
+  assert.equal(player.requests.includes("qr"), false);
+  await act(async () => {
+    resolveStatus({ authenticated: false });
+    await tick();
+  });
+  assert.equal(player.app.getSnapshot().auth.state, "waiting");
+  assert.equal(document.querySelector("#auth-view").hidden, false);
+  assert.equal(document.body.classList.contains("auth-gated"), true);
+  assert.equal(document.querySelector("#auth-qr").hidden, false);
+  assert.equal(player.audio.loads, 0);
+  assert.equal(player.requests.includes("qr"), true);
+});
+
 test("React keeps network authentication failures retryable without starting a QR login", async (t) => {
   let offline = true;
   const player = await mount(t, {
@@ -805,7 +877,8 @@ test("React mobile menu traps keyboard focus and marks the underlying controls i
   assert.equal(document.querySelector('.mode-option[data-mode="home"]').hidden, true);
   assert.equal(document.querySelector(".main-stage").hasAttribute("inert"), true);
   assert.equal(document.querySelector(".player-footer").hasAttribute("inert"), true);
-  assert.equal(document.querySelector("#mode-toggle").hasAttribute("inert"), true);
+  assert.equal(document.querySelector("#mode-toggle").hasAttribute("inert"), false);
+  assert.equal(document.querySelector("#mode-toggle").getAttribute("role"), "slider");
   await keyboard(document.activeElement, "End");
   assert.equal(document.activeElement.dataset.mode, "artist");
   await keyboard(document.activeElement, "Tab");
@@ -855,18 +928,133 @@ test("React search defers IME queries and removes stale clickable results as inp
   );
 });
 
-async function pointer(target, type, x, y = 0) {
-  await act(async () => {
-    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y });
-    for (const [name, value] of Object.entries({
-      pointerId: 1,
-      pointerType: "touch",
-      isPrimary: true,
-    }))
-      Object.defineProperty(event, name, { value });
-    target.dispatchEvent(event);
-  });
+function dispatchPointer(target, type, x, y = 0) {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y });
+  for (const [name, value] of Object.entries({
+    pointerId: 1,
+    pointerType: "touch",
+    isPrimary: true,
+  }))
+    Object.defineProperty(event, name, { value });
+  target.dispatchEvent(event);
 }
+
+async function pointer(target, type, x, y = 0) {
+  await act(async () => dispatchPointer(target, type, x, y));
+}
+
+// jsdom does not lay out the three mobile stops; give the real components their browser geometry.
+function mobileNavigationBounds() {
+  const control = document.querySelector(".mode-control");
+  const thumb = document.querySelector("#mode-toggle");
+  const rect = (x) => ({ left: x, top: 300, right: x + 44, bottom: 344, width: 44, height: 44 });
+  control.getBoundingClientRect = () => rect(200);
+  for (const [index, mode] of ["radio", "liked", "artist"].entries())
+    document.querySelector(`[data-mode="${mode}"]`).getBoundingClientRect = () =>
+      rect(104 + index * 48);
+  thumb.getBoundingClientRect = () =>
+    rect(200 + Number(thumb.style.transform.match(/translate\(([-\d.]+)px/)?.[1] || 0));
+  return { control, thumb };
+}
+
+test("React mobile navigation accepts taps and a loose drag without changing playback", async (t) => {
+  const player = await mount(t, { mobile: true });
+  const { thumb } = mobileNavigationBounds();
+  const source = player.app.getSnapshot().playback.source;
+  const loads = player.audio.loads;
+  await click("#mode-toggle");
+  assert.equal(thumb.getAttribute("role"), "slider");
+  assert.equal(thumb.getAttribute("aria-valuenow"), "0");
+  await pointer(thumb, "pointerdown", 126, 322);
+  await pointer(thumb, "pointermove", 180, 360);
+  assert.equal(thumb.getAttribute("aria-valuetext"), "喜欢的音乐");
+  assert.equal(thumb.getAttribute("aria-valuenow"), "1");
+  assert.equal(player.app.getSnapshot().navigation.view, "player");
+  await pointer(thumb, "pointerup", 188, 382); // 14px from the stop and 60px below the starting finger.
+  assert.equal(player.app.getSnapshot().navigation.view, "liked");
+  assert.equal(player.app.getSnapshot().navigation.menuOpen, false);
+  await act(async () => {
+    thumb.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
+  });
+  assert.equal(
+    player.app.getSnapshot().navigation.menuOpen,
+    false,
+    "A drag's trailing click must not reopen the menu",
+  );
+  await chooseMode("artist");
+  assert.equal(player.app.getSnapshot().navigation.view, "search");
+  assert.equal(player.audio.loads, loads);
+  assert.deepEqual(player.app.getSnapshot().playback.source, source);
+});
+
+test("React mobile thumb can reveal the selector while dragging and tolerates endpoint overshoot", async (t) => {
+  const player = await mount(t, { mobile: true });
+  const { thumb } = mobileNavigationBounds();
+  await pointer(thumb, "pointerdown", 222, 322);
+  await pointer(thumb, "pointermove", 166, 355);
+  assert.equal(player.app.getSnapshot().navigation.menuOpen, true);
+  assert.equal(document.querySelector(".mode-control").dataset.dragging, "true");
+  await pointer(thumb, "pointerup", 156, 398);
+  assert.equal(player.app.getSnapshot().navigation.view, "liked");
+  await pointer(thumb, "pointerdown", 222, 322);
+  await pointer(thumb, "pointermove", 0, 340);
+  await pointer(thumb, "pointerup", 0, 340);
+  assert.equal(player.app.getSnapshot().navigation.view, "browse");
+  assert.equal(player.app.getSnapshot().navigation.menuOpen, false);
+  assert.equal(player.app.getSnapshot().playback.current.id, "a");
+  await act(async () => player.app.openQueue());
+  await pointer(thumb, "pointerdown", 222, 322);
+  await pointer(thumb, "pointermove", 166, 355);
+  assert.equal(thumb.hasAttribute("inert"), false);
+  await pointer(thumb, "pointerup", 156, 398);
+  assert.equal(player.app.getSnapshot().navigation.view, "liked");
+});
+
+test("React mobile thumb cancels interrupted and distant drags without selecting a page", async (t) => {
+  const player = await mount(t, { mobile: true });
+  const { thumb, control } = mobileNavigationBounds();
+  await click("#mode-toggle");
+  for (const ending of ["pointercancel", "lostpointercapture", "pointerup"]) {
+    await pointer(thumb, "pointerdown", 126, 322);
+    await pointer(thumb, "pointermove", 180, 340);
+    await pointer(thumb, ending, 180, 420);
+    assert.equal(player.app.getSnapshot().navigation.view, "player");
+    assert.equal(control.dataset.dragging, "false");
+    assert.equal(thumb.getAttribute("aria-valuenow"), "0");
+  }
+  await pointer(thumb, "pointerdown", 126, 322);
+  await act(async () => {
+    // A very quick interruption can coalesce both React updates into one render.
+    dispatchPointer(thumb, "pointermove", 180, 340);
+    dispatchPointer(thumb, "pointercancel", 180, 340);
+  });
+  assert.equal(thumb.style.transform, "translate(-96px, 0px)");
+  assert.equal(control.dataset.dragging, "false");
+  await pointer(thumb, "pointerdown", 126, 322);
+  await pointer(thumb, "pointermove", 180, 340);
+  await act(async () => player.app.setMobile(false));
+  assert.equal(control.dataset.dragging, "false");
+  await pointer(thumb, "pointerup", 180, 340);
+  assert.equal(player.app.getSnapshot().navigation.view, "player");
+});
+
+test("React mobile slider supports keyboard selection and desktop keeps click navigation", async (t) => {
+  const player = await mount(t, { mobile: true });
+  const { thumb } = mobileNavigationBounds();
+  await click("#mode-toggle");
+  await keyboard(thumb, "ArrowRight");
+  assert.equal(player.app.getSnapshot().navigation.view, "liked");
+  await click("#mode-toggle");
+  await keyboard(thumb, "End");
+  assert.equal(player.app.getSnapshot().navigation.view, "search");
+  await act(async () => player.app.setMobile(false));
+  await pointer(thumb, "pointerdown", 222, 322);
+  await pointer(thumb, "pointermove", 120, 322);
+  await pointer(thumb, "pointerup", 120, 322);
+  assert.equal(player.app.getSnapshot().navigation.menuOpen, false);
+  await chooseMode("radio");
+  assert.equal(player.app.getSnapshot().navigation.view, "browse");
+});
 
 test("React touch swipes suspend and resume the mounted page without changing playback", async (t) => {
   const player = await mount(t, { mobile: true });

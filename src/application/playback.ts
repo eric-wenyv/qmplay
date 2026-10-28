@@ -81,7 +81,7 @@ export class PlaybackController {
     });
     this.store.publish();
   }
-  restore(preferences: Library): void {
+  restore(preferences: Library, { load = true } = {}): void {
     this.queueVersion++;
     this.session.order = preferences.order;
     this.session.setQueue(preferences.queue, {
@@ -92,6 +92,7 @@ export class PlaybackController {
     });
     this.session.seek(preferences.elapsed);
     this.publish();
+    if (!load) return;
     this.effects.save();
     if (this.session.current) void this.loadCurrent({ elapsed: this.session.elapsed });
     else if (!preferences.hasQueue && this.session.source && this.session.source.type !== "liked")
