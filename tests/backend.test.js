@@ -273,6 +273,130 @@ test("personal radio requires the current account, refreshes credentials and kee
   }
 });
 
+test("daily recommendations require an account and read only its current daily playlist", async () => {
+  const tokens = [session.newToken(), session.newToken()];
+  for (const [index, token] of tokens.entries())
+    await session.sessions.save(token, {
+      credential: {
+        musicid: index ? 67890 : 12345,
+        musickey: index ? "daily-second-key" : "daily-old-key",
+        refresh_token: "refresh",
+        refresh_key: "refresh-key",
+      },
+      expiresAt: Date.now() + 60000,
+    });
+  let mode = "valid",
+    refreshes = 0;
+  const calls = [];
+  axios.defaults.adapter = async (config) => {
+    const payload = JSON.parse(config.data);
+    const { module, method, param } = payload.req_0;
+    if (method === "Login") {
+      refreshes++;
+      return upstream(config, {
+        code: 0,
+        req_0: { code: 0, data: { musicid: 12345, musickey: "daily-new-key" } },
+      });
+    }
+    if (payload.comm.authst === "daily-old-key") return upstream(config, { code: 301 });
+    const first = payload.comm.uin === "12345";
+    assert.equal(payload.comm.authst, first ? "daily-new-key" : "daily-second-key");
+    assert.match(config.headers.Cookie, new RegExp(`qqmusic_key=${payload.comm.authst}`));
+    calls.push(method);
+    let data;
+    if (method === "get_recommend_feed") {
+      assert.equal(module, "music.recommend.RecommendFeed");
+      assert.deepEqual(param, { direction: 0, page: 1, v_cache: [], v_uniq: [], s_num: 0 });
+      if (mode === "outage")
+        throw Object.assign(new Error("network outage"), { code: "ETIMEDOUT" });
+      const daily = {
+        subtype: 510,
+        id: first ? "98765" : "98766",
+        time: Math.floor(Date.now() / 1000) - (mode === "stale" ? 86400 : 0),
+      };
+      if (mode === "invalid-id") daily.id = "not-a-playlist";
+      const cards = [{ subtype: 511, id: "99999" }, daily];
+      if (mode === "duplicate") cards.push({ ...daily });
+      if (mode === "missing") cards.pop();
+      data = { retcode: mode === "rejected" ? 9 : 0, v_shelf: [{ v_niche: [{ v_card: cards }] }] };
+      if (mode === "malformed") data.v_shelf = [{}];
+    } else {
+      assert.equal(module, "music.srfDissInfo.DissInfo");
+      assert.equal(method, "CgiGetDiss");
+      assert.deepEqual(param, {
+        disstid: first ? 98765 : 98766,
+        dirid: 0,
+        tag: true,
+        song_begin: 0,
+        song_num: 100,
+        userinfo: true,
+        orderlist: true,
+        onlysonglist: false,
+      });
+      data = {
+        songlist: Array.from({ length: 30 }, (_, index) => ({
+          mid: `${first ? "first" : "second"}-${index}`,
+        })),
+        total_song_num: mode === "partial" ? 31 : 30,
+        hasmore: 0,
+      };
+      if (mode === "invalid-tracks") delete data.songlist;
+    }
+    return upstream(config, { code: 0, req_0: { code: 0, data } });
+  };
+  try {
+    await localApi(async (request) => {
+      assert.equal((await request("/getDailyRecommend")).status, 401);
+      const headers = { Cookie: `qq_music_session=${tokens[0]}` };
+      assert.equal(
+        (
+          await request("/getDailyRecommend", {
+            headers: { ...headers, Origin: "https://example.com" },
+          })
+        ).status,
+        403,
+      );
+      assert.equal(calls.length, 0);
+      for (const [index, token] of tokens.entries()) {
+        const response = await request("/getDailyRecommend", {
+          headers: { Cookie: `qq_music_session=${token}` },
+        });
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get("cache-control"), "no-store");
+        const body = await response.json();
+        assert.equal(body.data.tracks.length, 30);
+        assert.equal(body.data.tracks[0].mid, index ? "second-0" : "first-0");
+        assert.equal(JSON.stringify(body).includes("key"), false);
+      }
+      assert.equal(refreshes, 1);
+      assert.deepEqual(calls, [
+        "get_recommend_feed",
+        "CgiGetDiss",
+        "get_recommend_feed",
+        "CgiGetDiss",
+      ]);
+      for (mode of [
+        "stale",
+        "invalid-id",
+        "duplicate",
+        "missing",
+        "malformed",
+        "rejected",
+        "partial",
+        "invalid-tracks",
+        "outage",
+      ]) {
+        const response = await request("/getDailyRecommend", { headers });
+        assert.equal(response.status, 502, mode);
+        assert.equal((await response.json()).data, undefined, mode);
+        assert(await session.sessions.get(tokens[0]), mode);
+      }
+    });
+  } finally {
+    for (const token of tokens) await session.sessions.delete(token);
+  }
+});
+
 test("artist albums and album songs use offset pagination, and artist songs can pass the first thousand", async () => {
   const calls = [];
   axios.defaults.adapter = async (config) => {

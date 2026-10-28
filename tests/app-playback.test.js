@@ -89,6 +89,9 @@ async function setup(t, preferences = {}, { mobile = false, provider: overrides 
     async getRecommendedTracks() {
       return [song("radio")];
     },
+    async getDailyRecommendedTracks() {
+      return [...songs];
+    },
     async getRadioTracks() {
       return [...songs];
     },
@@ -346,17 +349,18 @@ for (const mobile of [false, true]) {
     await app.switchSource("liked");
     app.seek(35);
     const requests = [];
-    provider.getRadioStations = async () => [
-      { id: "42", name: "公共电台", group: "分类", coverUrl: "" },
-    ];
+    provider.getRadioStations = async () => assert.fail("public catalogue is no longer used");
     provider.getRadioTracks = async (id, firstplay, { signal }) => {
       requests.push({ id, firstplay, signal });
       return firstplay ? [...songs] : [song("next-personal")];
     };
     await app.showRadio();
     assert.deepEqual(
-      app.getSnapshot().catalog.stations.map((station) => station.id),
-      ["99", "new", "42"],
+      app.getSnapshot().catalog.stations.map(({ id, name }) => ({ id, name })),
+      [
+        { id: "99", name: "私人电台" },
+        { id: "daily", name: "每日30首" },
+      ],
     );
     assert.equal(app.session.elapsed, 35);
     assert.equal(audio.paused, false);
@@ -375,26 +379,47 @@ for (const mobile of [false, true]) {
   });
 }
 
-test("personal radio and new songs remain available when the public catalogue fails", async (t) => {
-  const { app } = await setup(
-    t,
-    {},
-    {
-      provider: {
-        async getRadioStations() {
-          throw new Error("公共频道暂时不可用");
-        },
-      },
-    },
-  );
-  await app.showRadio();
-  assert.deepEqual(
-    app.getSnapshot().catalog.stations.map((station) => station.id),
-    ["99", "new"],
-  );
-  assert.equal(app.getSnapshot().notice.message, "公共频道暂时不可用");
-  await app.switchSource("radio", { id: "99" });
+for (const mobile of [false, true]) {
+  test(`daily recommendations are a finite queue and refresh on explicit selection (${mobile ? "mobile" : "desktop"})`, async (t) => {
+    const { app, provider } = await setup(t, {}, { mobile });
+    let calls = 0;
+    const daily = Array.from({ length: 30 }, (_, index) => song(`daily-${index}`));
+    provider.getDailyRecommendedTracks = async () => {
+      calls++;
+      return daily;
+    };
+    provider.getRecommendedTracks = provider.getRadioTracks = async () =>
+      assert.fail("daily recommendations must not fall back to other sources");
+    await app.showRadio();
+    await app.switchSource("radio", { id: "daily", name: "每日30首" });
+    assert.equal(app.session.source.hasMore, false);
+    assert.equal(app.session.queue.length, 30);
+    await app.selectTrack(29);
+    await app.advance("next", true);
+    assert.equal(app.session.current.id, "daily-0");
+    assert.equal(await app.loadMore(), false);
+    assert.equal(calls, 1);
+    await app.showRadio();
+    await app.switchSource("radio", { id: "daily" });
+    assert.equal(calls, 2);
+  });
+}
+
+test("failed daily recommendations preserve current playback and remain retryable", async (t) => {
+  const { app, provider, audio } = await setup(t);
+  await app.switchSource("liked");
+  app.seek(35);
+  provider.getDailyRecommendedTracks = async () => {
+    throw new Error("每日30首尚未更新");
+  };
+  await app.switchSource("radio", { id: "daily" });
   assert.equal(app.session.current.id, "a");
+  assert.equal(app.session.elapsed, 35);
+  assert.equal(audio.paused, false);
+  assert.equal(app.getSnapshot().notice.message, "每日30首尚未更新");
+  provider.getDailyRecommendedTracks = async () => [song("daily")];
+  await app.getSnapshot().notice.retry();
+  assert.equal(app.session.current.id, "daily");
 });
 
 for (const type of ["artist", "radio", "liked"])
@@ -448,9 +473,14 @@ test("browsing favorites cancels a pending playlist selection and preserves curr
   await app.switchSource("liked");
   app.seek(41);
   const tracks = deferred();
-  provider.getRecommendedTracks = () => tracks.promise;
-  const pending = app.switchSource("radio", { id: "new" });
+  let signal;
+  provider.getDailyRecommendedTracks = (options) => {
+    signal = options.signal;
+    return tracks.promise;
+  };
+  const pending = app.switchSource("radio", { id: "daily" });
   app.showLiked();
+  assert.equal(signal.aborted, true);
   tracks.resolve([song("other")]);
   await pending;
   assert.equal(app.session.current.id, "a");
@@ -836,7 +866,7 @@ test("album pagination coalesces calls and cancels stale responses when another 
   );
 });
 
-for (const pageName of ["search", "albums", "albumTracks", "browse"]) {
+for (const pageName of ["search", "albums", "albumTracks"]) {
   test(`mobile ${pageName} requests survive suspension at the player`, async (t) => {
     const { app, provider } = await setup(t, {}, { mobile: true });
     const result = deferred();
@@ -850,10 +880,6 @@ for (const pageName of ["search", "albums", "albumTracks", "browse"]) {
       provider.getArtistAlbums = () => result.promise;
       pending = app.showArtistAlbums(artist("singer"));
     }
-    if (pageName === "browse") {
-      provider.getRadioStations = () => result.promise;
-      pending = app.showRadio();
-    }
     if (pageName === "albumTracks") {
       provider.getAlbumTrackPage = () => result.promise;
       pending = app.showAlbumTracks(album("record"));
@@ -864,9 +890,7 @@ for (const pageName of ["search", "albums", "albumTracks", "browse"]) {
         ? [artist("found")]
         : pageName === "albums"
           ? { albums: [album("found")], hasMore: false }
-          : pageName === "albumTracks"
-            ? { tracks: [song("found")], hasMore: false }
-            : [{ id: "42", name: "found", group: "", coverUrl: "" }],
+          : { tracks: [song("found")], hasMore: false },
     );
     await pending;
     app.resumeMobilePage();
@@ -877,9 +901,7 @@ for (const pageName of ["search", "albums", "albumTracks", "browse"]) {
         ? catalog.artists.some((item) => item.id === "found")
         : pageName === "albums"
           ? catalog.albums.some((item) => item.id === "found")
-          : pageName === "albumTracks"
-            ? catalog.albumTracks.some((item) => item.id === "found")
-            : catalog.stations.some((item) => item.id === "42"),
+          : catalog.albumTracks.some((item) => item.id === "found"),
     );
   });
 }
@@ -985,6 +1007,10 @@ test("authentication refresh keeps valid playback on network errors and isolates
   assert.equal(app.session.elapsed, 21);
   provider.getAuthStatus = async () => ({ authenticated: true, user: { uin: "200" } });
   provider.getFavorites = async () => [song("new-account")];
+  provider.getRadioTracks = async (id) => {
+    assert.equal(id, "99");
+    return [song("new-account-radio")];
+  };
   await app.refreshFavorites();
   await settle();
   assert.equal(app.getSnapshot().auth.user.uin, "200");
@@ -993,6 +1019,7 @@ test("authentication refresh keeps valid playback on network errors and isolates
     ["new-account"],
   );
   assert(!app.session.queue.some((track) => track.id === "a"));
+  assert.equal(app.session.source.resource.id, "99");
   assert.equal(audio.paused, true);
 });
 

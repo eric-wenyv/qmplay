@@ -211,6 +211,10 @@ async function mount(t, { mobile = false, provider: overrides = {}, queue = song
     async getRecommendedTracks() {
       return songs;
     },
+    async getDailyRecommendedTracks() {
+      requests.push("daily");
+      return [{ ...songs[0], id: "daily-track", title: "每日推荐歌曲" }];
+    },
     async getLyrics() {
       return [
         { time: 0, text: "第一句" },
@@ -625,10 +629,19 @@ test("React restores an authenticated paused session and navigation preserves ac
   assert.equal(document.querySelector("#browse-view").hidden, false);
   assert.equal(player.audio.loads, loads);
   assert.equal(player.app.getSnapshot().playback.current.id, "a");
-  await click('[data-station="777"]');
-  assert.equal(document.querySelector("#track-title").textContent, "电台 777");
+  assert.deepEqual(
+    [...document.querySelectorAll("[data-station] .artist-name")].map((item) => item.textContent),
+    ["私人电台", "每日30首"],
+  );
+  await click('[data-station="99"]');
+  assert.equal(document.querySelector("#track-title").textContent, "电台 99");
   assert.equal(player.audio.paused, false);
-  assert(player.requests.includes("play:radio-777"));
+  assert(player.requests.includes("play:radio-99"));
+  await chooseMode("radio");
+  await click('[data-station="daily"]');
+  assert.equal(document.querySelector("#track-title").textContent, "每日推荐歌曲");
+  assert(player.requests.includes("daily"));
+  assert.equal(player.app.getSnapshot().playback.source.hasMore, false);
 });
 
 test("React keeps network authentication failures retryable without starting a QR login", async (t) => {

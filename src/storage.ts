@@ -34,9 +34,10 @@ function readQueueSource(data: Record<string, unknown>): QueueSource | null {
   return {
     type: "radio",
     resource:
-      source.type === "radio" && selected && /^(new|\d+)$/.test(selected.id)
+      source.type === "radio" && selected && /^(daily|new|\d+)$/.test(selected.id)
         ? selected
-        : { id: "new", name: "每日新歌" },
+        : { id: "99", name: "私人电台" },
+    ...(selected?.id === "daily" && { hasMore: false }),
   };
 }
 export function validTrack(value: unknown): value is Track {
@@ -96,7 +97,7 @@ export function readLibrary(storage: StorageLike = globalThis.localStorage): Lib
       order: data.order === "shuffle" || data.order === "repeatOne" ? data.order : "repeat",
       mode: data.mode === "artist" || data.mode === "liked" ? data.mode : "radio",
       station:
-        station && /^(new|\d+)$/.test(station.id) ? station : { id: "new", name: "每日新歌" },
+        station && /^(daily|new|\d+)$/.test(station.id) ? station : { id: "99", name: "私人电台" },
       artist,
       currentId: typeof data.currentId === "string" ? data.currentId : "",
       currentIndex:
@@ -116,7 +117,7 @@ export function readLibrary(storage: StorageLike = globalThis.localStorage): Lib
       queue: [],
       order: "repeat",
       mode: "radio",
-      station: { id: "new", name: "每日新歌" },
+      station: { id: "99", name: "私人电台" },
       artist: null,
       elapsed: 0,
     };

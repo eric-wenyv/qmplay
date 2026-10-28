@@ -156,9 +156,11 @@ export class PlaybackController {
           queue = page.tracks;
         } else
           queue =
-            resource.id === "new"
-              ? await this.provider.getRecommendedTracks({ signal })
-              : await this.provider.getRadioTracks(resource.id, 1, { signal });
+            resource.id === "daily"
+              ? await this.provider.getDailyRecommendedTracks({ signal })
+              : resource.id === "new"
+                ? await this.provider.getRecommendedTracks({ signal })
+                : await this.provider.getRadioTracks(resource.id, 1, { signal });
       }
       if (version !== this.sourceVersion || signal.aborted) return;
       if (!queue.length) throw new Error("暂时没有可用歌曲，请选择其他来源");
@@ -173,6 +175,7 @@ export class PlaybackController {
           ...(resource && { resource }),
           page: 1,
           ...(page && { hasMore: page.hasMore }),
+          ...(type === "radio" && resource?.id === "daily" && { hasMore: false }),
         },
       });
       this.navigation.setView("player");
@@ -204,7 +207,13 @@ export class PlaybackController {
     const queue = this.session.queue;
     const version = this.queueVersion;
     const source = this.session.source;
-    if (!source || source.type === "liked" || source.hasMore === false || !source.resource)
+    if (
+      !source ||
+      source.type === "liked" ||
+      source.hasMore === false ||
+      !source.resource ||
+      (source.type === "radio" && source.resource.id === "daily")
+    )
       return false;
     if (this.moreRequest?.version === version) return this.moreRequest.promise;
     const controller = new AbortController();

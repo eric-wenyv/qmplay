@@ -147,6 +147,21 @@ test("legacy queue sources migrate with their saved songs, and invalid paginatio
   assert.equal(readLibrary(storage).hasQueue, false);
 });
 
+test("daily queues round-trip as complete lists while legacy radio sources remain compatible", () => {
+  const storage = memory();
+  assert.deepEqual(readLibrary(storage).queueSource.resource, { id: "99", name: "私人电台" });
+  for (const id of ["daily", "new", "199"]) {
+    const queueSource = {
+      type: "radio",
+      resource: { id },
+      ...(id === "daily" && { hasMore: false }),
+    };
+    writeLibrary({ liked: [], queue: [{ id: "saved", title: "已保存" }], queueSource }, storage);
+    assert.deepEqual(readLibrary(storage).queueSource, queueSource);
+    assert.equal(readLibrary(storage).queue[0].id, "saved");
+  }
+});
+
 test("artist history retains the ten most recently visited distinct artists across restarts", () => {
   let history = [];
   for (let i = 0; i < 12; i++)

@@ -15,8 +15,8 @@ export type ApplicationProvider = Pick<
   | "getArtistAlbums"
   | "getArtistTrackPage"
   | "getAlbumTrackPage"
-  | "getRadioStations"
   | "getRadioTracks"
   | "getRecommendedTracks"
+  | "getDailyRecommendedTracks"
   | "getLyrics"
 > & { onAuthenticationRequired?: () => void };

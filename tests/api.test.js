@@ -170,6 +170,28 @@ test("personal radio keeps the radio contract, supports cancellation and rejects
     reply({ response: { radio: { code: 1, data: { track_list: [track] } } } });
   await assert.rejects(api.getRadioTracks("99"), /暂时无法提供歌曲/);
 });
+test("daily recommendations use their account endpoint, normalize tracks and support cancellation", async () => {
+  const controller = new AbortController();
+  let request;
+  const api = new QQMusicProvider({
+    fetcher: async (url, options) => {
+      request = { url, options };
+      return reply({
+        data: { tracks: [track, track, {}, { songmid: "daily", songname: "日推" }] },
+      });
+    },
+  });
+  assert.deepEqual(
+    (await api.getDailyRecommendedTracks({ signal: controller.signal })).map((song) => song.id),
+    ["mid-a", "daily"],
+  );
+  assert.equal(new URL(request.url, "http://localhost").pathname, "/api/getDailyRecommend");
+  assert.equal(request.options.credentials, "same-origin");
+  controller.abort();
+  assert.equal(request.options.signal.aborted, true);
+  api.fetcher = async () => reply({ data: { songlist: [track] } });
+  await assert.rejects(api.getDailyRecommendedTracks(), /数据不完整/);
+});
 test("playback starts with the highest advertised quality; empty or unsafe URLs never play", async () => {
   let lastUrl;
   const api = new QQMusicProvider({

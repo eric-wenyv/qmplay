@@ -8,6 +8,7 @@ import getSingerStarNum from "../controllers/getSingerStarNum";
 import getRadioLists from "../controllers/getRadioLists";
 import getRadioTracks from "../controllers/getRadioTracks";
 import getRecommend from "../controllers/getRecommend";
+import getDailyRecommend from "../controllers/getDailyRecommend";
 import getMusicPlay from "../controllers/getMusicPlay";
 import getLyric from "../controllers/getLyric";
 import getSongInfo from "../controllers/getSongInfo";
@@ -33,6 +34,7 @@ export const API_PATHS = [
   "/getRadioLists",
   "/getRadioTracks",
   "/getRecommend",
+  "/getDailyRecommend",
   "/getMusicPlay",
   "/getLyric",
   "/getSongInfo",
@@ -58,6 +60,7 @@ export function createRouter() {
   router.get("/getRadioLists", getRadioLists);
   router.get("/getRadioTracks", getRadioTracks);
   router.get("/getRecommend", getRecommend);
+  router.get("/getDailyRecommend", getDailyRecommend);
   router.get("/getLyric", getLyric);
   router.get("/getSongInfo", getSongInfo);
   router.get("/getMusicPlay", async (ctx) => {

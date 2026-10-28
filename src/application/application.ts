@@ -201,7 +201,7 @@ export class Application implements MusicApplication {
         hasQueue: false,
         queueSource: {
           type: "radio",
-          resource: { id: "new", name: "每日新歌" },
+          resource: { id: "99", name: "私人电台" },
         },
       });
       this.store.state.catalog.artists = [];

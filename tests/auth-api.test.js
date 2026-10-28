@@ -110,8 +110,8 @@ test("API proxy rejects absent or remote backend configuration and excludes read
   );
 });
 
-test("the desktop proxy permits the new read-only album interfaces", () => {
-  for (const pathname of ["/getSingerAlbum", "/getAlbumTracks"]) {
+test("the desktop proxy permits read-only album and daily recommendation interfaces", () => {
+  for (const pathname of ["/getSingerAlbum", "/getAlbumTracks", "/getDailyRecommend"]) {
     assert.equal(proxy.allowedApiRequest(pathname, "GET"), true);
     assert.equal(proxy.allowedApiRequest(pathname, "POST"), false);
   }

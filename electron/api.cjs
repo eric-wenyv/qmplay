@@ -12,6 +12,7 @@ const GET_PATHS = new Set([
   "/getRadioLists",
   "/getRadioTracks",
   "/getRecommend",
+  "/getDailyRecommend",
   "/getSingerAlbum",
   "/getAlbumTracks",
   "/getMusicPlay",

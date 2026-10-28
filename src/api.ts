@@ -465,6 +465,12 @@ export class QQMusicProvider {
     const body = await this.request("/getRecommend", {}, options);
     return normalizeTracks(at(body, "new_song", "data", "songlist"));
   }
+  async getDailyRecommendedTracks(options?: RequestOptions): Promise<Track[]> {
+    const body = await this.request("/getDailyRecommend", {}, options);
+    const tracks = body.tracks;
+    if (!Array.isArray(tracks)) throw new Error("每日30首歌曲数据不完整，请重试");
+    return normalizeTracks(tracks);
+  }
   async getPlayback(track: Track, { signal }: RequestOptions = {}): Promise<string> {
     for (const quality of getTrackQualities(track, this.supportedQualities)) {
       signal?.throwIfAborted();

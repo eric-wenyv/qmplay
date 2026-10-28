@@ -31,7 +31,6 @@ export class CatalogController {
   private followers = new Set<string>();
   private albumRequest: AlbumRequest | null = null;
   private albumTrackRequest: AlbumTrackRequest | null = null;
-  private radioVersion = 0;
   private lyricVersion = 0;
   private lyricAbort: AbortController | null = null;
   private lyricId: string | null = null;
@@ -51,7 +50,6 @@ export class CatalogController {
     }
     if (previous === "albumTracks" && next !== "albumTracks") this.cancelAlbumTracks();
     if (previous === "browse" && next !== "browse") {
-      this.radioVersion++;
       this.cancelTrackSearch();
     }
   }
@@ -68,7 +66,6 @@ export class CatalogController {
     this.cancelAlbumTracks();
     this.albumRequest?.controller.abort();
     if (this.albumRequest) this.albumRequest.pending = false;
-    this.radioVersion++;
     this.lyricVersion++;
     this.lyricAbort?.abort();
     this.store.state.requests.albums = false;
@@ -333,27 +330,16 @@ export class CatalogController {
     this.navigation.browse("browse");
     if (!this.store.state.catalog.tracks.length && this.store.state.catalog.hasMoreTracks)
       void this.loadMoreTracks();
-    const version = ++this.radioVersion;
-    const stations = [
+    this.store.state.catalog.stations = [
       {
         id: "99",
-        name: "私人电台／猜你喜欢",
+        name: "私人电台",
         group: "根据你的听歌喜好推荐",
         coverUrl: "",
       },
-      { id: "new", name: "每日新歌", group: "推荐", coverUrl: "" },
+      { id: "daily", name: "每日30首", group: "QQ 音乐每日专属推荐", coverUrl: "" },
     ];
-    this.store.state.catalog.stations = stations;
     this.store.publish();
-    try {
-      const publicStations = await this.provider.getRadioStations();
-      if (version !== this.radioVersion || !this.navigation.isPageActive("browse")) return;
-      this.store.state.catalog.stations = [...stations, ...publicStations];
-      this.store.publish();
-    } catch (error) {
-      if (version === this.radioVersion && this.navigation.isPageActive("browse"))
-        this.effects.notice(errorMessage(error), () => this.showRadio());
-    }
   }
   currentChanged(): void {
     this.lyricVersion++;
