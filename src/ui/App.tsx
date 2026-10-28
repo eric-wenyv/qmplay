@@ -4,7 +4,9 @@ import { usePlatform } from "../platform/usePlatform.js";
 import { Navigation } from "./Navigation.js";
 import { AuthView } from "./AuthView.js";
 import { PlayerView, PlaybackControls } from "./PlayerView.js";
-import { SearchView, AlbumsView, RadioView, FavoritesView } from "./CatalogViews.js";
+import { SearchView, AlbumsView, FavoritesView } from "./CatalogViews.js";
+import { RadioView } from "./RadioView.js";
+import { AlbumTracksView } from "./AlbumTracksView.js";
 import { LyricsView } from "./LyricsView.js";
 import { QueuePanel } from "./QueuePanel.js";
 import { useKeyboard } from "./useKeyboard.js";
@@ -63,9 +65,28 @@ export function App({ app }: { app: MusicApplication }) {
     () => <AlbumsView app={app} snapshot={snapshot} />,
     [app, catalog.artist, catalog.albums, navigation.view, requests.albums],
   );
+  const albumTracksView = useMemo(
+    () => <AlbumTracksView app={app} snapshot={snapshot} />,
+    [
+      app,
+      catalog.album,
+      catalog.albumTracks,
+      catalog.hasMoreAlbumTracks,
+      navigation.view,
+      requests.albumTracks,
+    ],
+  );
   const radioView = useMemo(
     () => <RadioView app={app} snapshot={snapshot} />,
-    [app, catalog.stations, navigation.view],
+    [
+      app,
+      catalog.stations,
+      catalog.trackQuery,
+      catalog.tracks,
+      catalog.hasMoreTracks,
+      navigation,
+      requests.trackSearch,
+    ],
   );
   const favoritesView = useMemo(
     () => <FavoritesView app={app} snapshot={snapshot} />,
@@ -152,6 +173,7 @@ export function App({ app }: { app: MusicApplication }) {
         {playerView}
         {searchView}
         {albumsView}
+        {albumTracksView}
         {radioView}
         {favoritesView}
         {lyricsView}

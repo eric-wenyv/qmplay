@@ -107,9 +107,18 @@ export interface Library {
   station: Resource;
   artist: Resource | null;
   currentId?: string;
+  currentIndex?: number;
   elapsed: number;
 }
-export type View = "player" | "search" | "albums" | "browse" | "liked" | "lyrics" | "queue";
+export type View =
+  | "player"
+  | "search"
+  | "albums"
+  | "albumTracks"
+  | "browse"
+  | "liked"
+  | "lyrics"
+  | "queue";
 export type NavigationMode = "home" | "radio" | "liked" | "artist" | "queue";
 export interface AppSnapshot {
   playback: {
@@ -141,14 +150,22 @@ export interface AppSnapshot {
     recentArtists: Artist[];
     artist: Artist | null;
     albums: Album[];
+    album: Album | null;
+    albumTracks: Track[];
+    hasMoreAlbumTracks: boolean;
     stations: RadioStation[];
+    trackQuery: string;
+    tracks: Track[];
+    hasMoreTracks: boolean;
     hasMoreAlbums: boolean;
   };
   library: { liked: Track[]; busyIds: string[] };
   requests: {
     source: boolean;
     search: boolean;
+    trackSearch: boolean;
     albums: boolean;
+    albumTracks: boolean;
     lyrics: boolean;
     more: boolean;
   };
@@ -173,9 +190,15 @@ export interface MusicApplication {
   showSearch(): void;
   search(query: string): Promise<void>;
   cancelSearch(): void;
+  searchTracks(query: string): Promise<void>;
+  cancelTrackSearch(): void;
+  loadMoreTracks(): Promise<void>;
   loadFollowerCount(id: string): Promise<void>;
   showArtistAlbums(artist: Artist): Promise<void>;
   loadMoreAlbums(): Promise<void>;
+  showAlbumTracks(album: Album): Promise<void>;
+  loadMoreAlbumTracks(): Promise<void>;
+  returnToAlbums(): void;
   showRadio(): Promise<void>;
   showLiked(): void;
   switchSource(
@@ -193,6 +216,7 @@ export interface MusicApplication {
   openQueue(): void;
   closeQueue(): void;
   selectTrack(index: number): Promise<void>;
+  insertTrackNext(track: Track, options?: { autoplay?: boolean }): Promise<void>;
   removeTrack(index: number): void;
   loadMore(options?: { quiet?: boolean }): Promise<boolean>;
   showLyrics(): void;

@@ -8,6 +8,65 @@ const songs = [
   { id: "c", duration: 30 },
 ];
 
+for (const order of ["repeat", "shuffle", "repeatOne"]) {
+  test(`inserted songs keep current progress and play next in ${order}`, () => {
+    const player = new PlayerSession(() => 0.99);
+    player.setQueue(songs);
+    player.select(1);
+    player.order = order;
+    player.elapsed = 8;
+    player.insertNext({ id: "x" });
+    player.insertNext({ id: "y" });
+    assert.deepEqual(
+      player.queue.map((song) => song.id),
+      ["a", "b", "y", "x", "c"],
+    );
+    assert.equal(player.current.id, "b");
+    assert.equal(player.elapsed, 8);
+    player.next({ automatic: true });
+    assert.equal(player.current.id, "y");
+    player.next({ automatic: true });
+    assert.equal(player.current.id, "x");
+    player.previous();
+    assert.equal(player.current.id, "y");
+    player.previous();
+    assert.equal(player.current.id, "b");
+  });
+}
+test("insertion and removal rebase listening history and queued next indexes", () => {
+  const player = new PlayerSession();
+  player.setQueue(songs);
+  player.select(2);
+  player.select(0);
+  player.insertNext({ id: "x" });
+  player.previous();
+  assert.equal(player.current.id, "c");
+  player.remove(0);
+  assert.equal(player.current.id, "c");
+  player.next();
+  assert.equal(player.current.id, "x");
+  player.insertNext({ id: "deleted" });
+  player.remove(1);
+  assert.equal(player.hasQueuedNext, false);
+  player.setQueue([]);
+  assert.equal(player.insertNext({ id: "first" }), 0);
+  assert.equal(player.current.id, "first");
+  assert.equal(player.playing, false);
+});
+
+test("removing the current song consumes its queued successor and restores validate saved indexes", () => {
+  const player = new PlayerSession();
+  player.setQueue(songs);
+  player.insertNext({ id: "next" });
+  player.remove(0);
+  assert.equal(player.current.id, "next");
+  assert.equal(player.hasQueuedNext, false);
+  player.setQueue(songs, { trackId: "c", trackIndex: 0 });
+  assert.equal(player.index, 2);
+  player.setQueue(songs, { trackId: "b", trackIndex: 999 });
+  assert.equal(player.index, 1);
+});
+
 test("switching sources resets progress and an empty liked list cannot play", () => {
   const player = new PlayerSession();
   player.setQueue(songs);

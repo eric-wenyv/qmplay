@@ -1,4 +1,4 @@
-import type { Artist, View } from "../contracts.js";
+import type { Album, Artist, View } from "../contracts.js";
 import { rememberArtist } from "../storage.js";
 import type { ApplicationProvider } from "./provider.js";
 import type { NavigationController } from "./navigation.js";
@@ -14,13 +14,23 @@ interface AlbumRequest {
   pending: boolean;
   controller: AbortController;
 }
+interface AlbumTrackRequest {
+  album: Album;
+  page: number;
+  pending: boolean;
+  controller: AbortController;
+}
 
 /** Browsing requests own their cancellation and never mutate the playing queue. */
 export class CatalogController {
   private searchVersion = 0;
   private searchAbort: AbortController | null = null;
+  private trackSearchVersion = 0;
+  private trackSearchAbort: AbortController | null = null;
+  private trackSearchPage = 0;
   private followers = new Set<string>();
   private albumRequest: AlbumRequest | null = null;
+  private albumTrackRequest: AlbumTrackRequest | null = null;
   private radioVersion = 0;
   private lyricVersion = 0;
   private lyricAbort: AbortController | null = null;
@@ -39,7 +49,11 @@ export class CatalogController {
       if (this.albumRequest) this.albumRequest.pending = false;
       this.store.state.requests.albums = false;
     }
-    if (previous === "browse" && next !== "browse") this.radioVersion++;
+    if (previous === "albumTracks" && next !== "albumTracks") this.cancelAlbumTracks();
+    if (previous === "browse" && next !== "browse") {
+      this.radioVersion++;
+      this.cancelTrackSearch();
+    }
   }
   cancelSearch(): void {
     this.searchVersion++;
@@ -50,6 +64,8 @@ export class CatalogController {
   }
   stop(): void {
     this.cancelSearch();
+    this.cancelTrackSearch();
+    this.cancelAlbumTracks();
     this.albumRequest?.controller.abort();
     if (this.albumRequest) this.albumRequest.pending = false;
     this.radioVersion++;
@@ -122,6 +138,64 @@ export class CatalogController {
       /* Counts are optional; navigation remains available. */
     }
   }
+  cancelTrackSearch(): void {
+    this.trackSearchVersion++;
+    this.trackSearchAbort?.abort();
+    this.store.state.requests.trackSearch = false;
+    this.store.publish();
+  }
+  async searchTracks(query: string): Promise<void> {
+    this.cancelTrackSearch();
+    this.store.state.catalog.trackQuery = query;
+    this.store.state.catalog.tracks = [];
+    this.store.state.catalog.hasMoreTracks = !!query.trim();
+    this.trackSearchPage = 0;
+    this.store.publish();
+    if (query.trim()) await this.loadMoreTracks();
+  }
+  async loadMoreTracks(): Promise<void> {
+    const state = this.store.state;
+    if (
+      !this.navigation.isPageActive("browse") ||
+      state.requests.trackSearch ||
+      !state.catalog.hasMoreTracks ||
+      !state.catalog.trackQuery.trim()
+    )
+      return;
+    const version = this.trackSearchVersion;
+    const controller = (this.trackSearchAbort = new AbortController());
+    const page = this.trackSearchPage + 1;
+    state.requests.trackSearch = true;
+    this.store.publish();
+    try {
+      const result = await this.provider.searchTracks(state.catalog.trackQuery, page, {
+        signal: controller.signal,
+      });
+      if (
+        version !== this.trackSearchVersion ||
+        controller.signal.aborted ||
+        !this.navigation.isPageActive("browse")
+      )
+        return;
+      const known = new Set(state.catalog.tracks.map((track) => track.id));
+      const added = result.tracks.filter((track) => !known.has(track.id));
+      if (result.hasMore && !added.length) throw new Error("歌曲搜索分页未前进，请重试");
+      this.trackSearchPage = page;
+      state.catalog.tracks = [...state.catalog.tracks, ...added];
+      state.catalog.hasMoreTracks = result.hasMore;
+      state.announcement = state.catalog.tracks.length
+        ? `找到 ${state.catalog.tracks.length} 首歌曲`
+        : "没有找到歌曲";
+    } catch (error) {
+      if (version === this.trackSearchVersion && !controller.signal.aborted)
+        this.effects.notice(errorMessage(error), () => this.loadMoreTracks());
+    } finally {
+      if (version === this.trackSearchVersion) {
+        state.requests.trackSearch = false;
+        this.store.publish();
+      }
+    }
+  }
   async showArtistAlbums(artist: Artist): Promise<void> {
     this.albumRequest?.controller.abort();
     this.navigation.browse("albums");
@@ -187,8 +261,78 @@ export class CatalogController {
       }
     }
   }
+  private cancelAlbumTracks(): void {
+    this.albumTrackRequest?.controller.abort();
+    if (this.albumTrackRequest) this.albumTrackRequest.pending = false;
+    this.store.state.requests.albumTracks = false;
+  }
+  async showAlbumTracks(album: Album): Promise<void> {
+    this.cancelAlbumTracks();
+    this.navigation.browse("albumTracks");
+    this.store.state.catalog.album = album;
+    this.store.state.catalog.albumTracks = [];
+    this.store.state.catalog.hasMoreAlbumTracks = true;
+    this.albumTrackRequest = {
+      album,
+      page: 0,
+      pending: false,
+      controller: new AbortController(),
+    };
+    await this.loadMoreAlbumTracks();
+  }
+  async loadMoreAlbumTracks(): Promise<void> {
+    let request = this.albumTrackRequest;
+    if (
+      !request ||
+      !this.navigation.isPageActive("albumTracks") ||
+      request.pending ||
+      !this.store.state.catalog.hasMoreAlbumTracks
+    )
+      return;
+    if (request.controller.signal.aborted)
+      request = this.albumTrackRequest = {
+        ...request,
+        pending: false,
+        controller: new AbortController(),
+      };
+    request.pending = true;
+    this.store.state.requests.albumTracks = true;
+    this.store.publish();
+    try {
+      const result = await this.provider.getAlbumTrackPage(request.album.id, request.page + 1, {
+        signal: request.controller.signal,
+      });
+      if (
+        request !== this.albumTrackRequest ||
+        request.controller.signal.aborted ||
+        !this.navigation.isPageActive("albumTracks")
+      )
+        return;
+      const known = new Set(this.store.state.catalog.albumTracks.map((track) => track.id));
+      const added = result.tracks.filter((track) => {
+        if (known.has(track.id)) return false;
+        known.add(track.id);
+        return true;
+      });
+      if (result.hasMore && !added.length) throw new Error("专辑歌曲分页未前进，请重试");
+      request.page++;
+      this.store.state.catalog.albumTracks = [...this.store.state.catalog.albumTracks, ...added];
+      this.store.state.catalog.hasMoreAlbumTracks = result.hasMore;
+    } catch (error) {
+      if (request === this.albumTrackRequest && !request.controller.signal.aborted)
+        this.effects.notice(errorMessage(error), () => this.loadMoreAlbumTracks());
+    } finally {
+      request.pending = false;
+      if (request === this.albumTrackRequest && !request.controller.signal.aborted) {
+        this.store.state.requests.albumTracks = false;
+        this.store.publish();
+      }
+    }
+  }
   async showRadio(): Promise<void> {
     this.navigation.browse("browse");
+    if (!this.store.state.catalog.tracks.length && this.store.state.catalog.hasMoreTracks)
+      void this.loadMoreTracks();
     const version = ++this.radioVersion;
     const stations = [
       {

@@ -4,6 +4,7 @@ import type { ApplicationStore } from "./store.js";
 const pageModes: Partial<Record<View, NavigationMode>> = {
   search: "artist",
   albums: "artist",
+  albumTracks: "artist",
   browse: "radio",
   liked: "liked",
   queue: "queue",

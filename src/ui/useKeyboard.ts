@@ -114,6 +114,7 @@ export function useKeyboard(app: MusicApplication, snapshot: AppSnapshot) {
     else if (next.view !== before.view) {
       if (next.view === "search" && !next.mobile) focusElement("#search-input");
       else if (next.view === "albums") focusElement("#play-artist");
+      else if (next.view === "albumTracks") focusElement("#album-tracks-back");
       else focusElement("#mode-toggle");
     } else if (before.menuOpen && !next.menuOpen && document.activeElement?.closest("#mode-menu"))
       focusElement("#mode-toggle");

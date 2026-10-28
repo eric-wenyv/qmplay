@@ -19,6 +19,7 @@ const icons: Record<NavigationMode, string> = {
 const pageModes = {
   search: "artist",
   albums: "artist",
+  albumTracks: "artist",
   browse: "radio",
   liked: "liked",
   queue: "queue",

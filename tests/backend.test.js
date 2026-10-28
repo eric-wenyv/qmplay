@@ -67,6 +67,41 @@ function json(body, cookie) {
   };
 }
 
+test("song search validates pagination and always requests only songs", async () => {
+  const calls = [];
+  axios.defaults.adapter = async (config) => {
+    calls.push(config);
+    assert(config.url.endsWith("/soso/fcgi-bin/client_search_cp"));
+    assert.equal(config.params.w, "晴天");
+    assert.equal(config.params.t, 0);
+    assert.equal(config.params.catZhida, 0);
+    assert.equal(config.params.remoteplace, "txt.yqq.song");
+    assert.equal(config.params.new_json, undefined);
+    return upstream(config, { code: 0, data: { song: { list: [], totalnum: 0 } } });
+  };
+  await localApi(async (request, origin) => {
+    assert.equal((await fetch(`${origin}/getSearchByKey?key=x`)).status, 403);
+    for (const query of [
+      "",
+      "?key=",
+      "?key=%20",
+      "?key=x&page=0",
+      "?key=x&limit=51",
+      "?key=x&page=1.5",
+      "?key=x&key=y",
+    ])
+      assert.equal((await request(`/getSearchByKey${query}`)).status, 400, query);
+    assert.equal(calls.length, 0);
+    const response = await request(
+      `/getSearchByKey?${new URLSearchParams({ key: " 晴天 ", page: "2", limit: "20", t: "8", catZhida: "3" })}`,
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).response.data.song.list, []);
+    assert.equal(calls[0].params.p, 2);
+    assert.equal(calls[0].params.n, 20);
+  });
+});
+
 test("embedded API rejects unrelated interfaces and requires its process token before parsing requests", async () => {
   axios.defaults.adapter = async () => {
     throw new Error("Unexpected network request");

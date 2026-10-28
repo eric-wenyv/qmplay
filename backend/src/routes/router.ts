@@ -1,6 +1,7 @@
 import Router from "koa-router";
 import getHotkey from "../controllers/getHotkey";
 import getSmartbox from "../controllers/getSmartbox";
+import getSearchByKey from "../controllers/getSearchByKey";
 import getSingerList from "../controllers/getSingerList";
 import getSingerHotsong from "../controllers/getSingerHotsong";
 import getSingerStarNum from "../controllers/getSingerStarNum";
@@ -25,6 +26,7 @@ import { SESSION_COOKIE } from "../services/auth/session";
 export const API_PATHS = [
   "/getHotkey",
   "/getSmartbox",
+  "/getSearchByKey",
   "/getSingerList",
   "/getSingerHotsong",
   "/getSingerStarNum",
@@ -47,6 +49,7 @@ export function createRouter() {
   const router = new Router();
   router.get("/getHotkey", getHotkey);
   router.get("/getSmartbox", getSmartbox);
+  router.get("/getSearchByKey", getSearchByKey);
   router.get("/getSingerList", getSingerList);
   router.get("/getSingerHotsong", getSingerHotsong);
   router.get("/getSingerAlbum", singerAlbums);

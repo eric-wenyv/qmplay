@@ -111,7 +111,11 @@ export function QueuePanel({ app, snapshot }: { app: MusicApplication; snapshot:
         {queue.slice(start, end).map((track, offset) => {
           const index = start + offset;
           return (
-            <div className="queue-item" key={`${track.id}:${index}`}>
+            <div
+              className="queue-item"
+              key={`${track.id}:${index}`}
+              data-current={index === snapshot.playback.index}
+            >
               <button
                 type="button"
                 className="queue-row"
@@ -148,7 +152,7 @@ export function QueuePanel({ app, snapshot }: { app: MusicApplication; snapshot:
               </button>
               <button
                 type="button"
-                className="queue-remove"
+                className="icon-button queue-remove"
                 data-remove={index}
                 aria-label={`从队列移除 ${track.title}`}
                 onClick={() => {
@@ -159,7 +163,7 @@ export function QueuePanel({ app, snapshot }: { app: MusicApplication; snapshot:
                   app.removeTrack(index);
                 }}
               >
-                ×
+                <Icon name="close" />
               </button>
             </div>
           );

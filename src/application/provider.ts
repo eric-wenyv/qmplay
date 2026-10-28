@@ -10,6 +10,7 @@ export type ApplicationProvider = Pick<
   | "getFavorites"
   | "setFavorite"
   | "searchArtists"
+  | "searchTracks"
   | "getFollowerCount"
   | "getArtistAlbums"
   | "getArtistTrackPage"

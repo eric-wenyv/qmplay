@@ -71,6 +71,47 @@ test("artist searches use smartbox and blank queries never fetch popular singers
   assert.equal(urls.length, 1);
   assert.match(urls[0], /getSmartbox\?key=/);
 });
+test("song searches normalize only songs, retain pagination and reject incomplete responses", async () => {
+  const calls = [];
+  const controller = new AbortController();
+  const api = new QQMusicProvider({
+    fetcher: async (url, options) => {
+      calls.push({ url, options });
+      return reply({
+        response: {
+          code: 0,
+          data: {
+            song: {
+              list: [track, track, {}, { songmid: "legacy", songname: "旧歌" }],
+              totalnum: 101,
+            },
+            album: { list: [{ mid: "not-a-song" }] },
+            zhida: { type: 2, mid: "not-a-song-either" },
+          },
+        },
+      });
+    },
+  });
+  assert.deepEqual(await api.searchTracks("  "), { tracks: [], hasMore: false });
+  const result = await api.searchTracks(" 晴天 ", 2, { signal: controller.signal });
+  assert.deepEqual(
+    result.tracks.map((song) => song.id),
+    ["mid-a", "legacy"],
+  );
+  assert.equal(result.hasMore, true);
+  const url = new URL(calls[0].url, "http://localhost");
+  assert.equal(url.pathname, "/api/getSearchByKey");
+  assert.equal(url.searchParams.get("key"), "晴天");
+  assert.equal(url.searchParams.get("page"), "2");
+  assert.equal(url.searchParams.get("limit"), "50");
+  assert.equal((await api.searchTracks("晴天", 3)).hasMore, false);
+  controller.abort();
+  assert.equal(calls[0].options.signal.aborted, true);
+  api.fetcher = async () => reply({ response: { data: { album: {} } } });
+  await assert.rejects(api.searchTracks("晴天"), /数据不完整/);
+  api.fetcher = async () => reply({ response: { code: 1 } });
+  await assert.rejects(api.searchTracks("晴天"), /暂时无法提供数据/);
+});
 test("radio catalogue, batch and singer songs map the actual upstream envelopes", async () => {
   const api = new QQMusicProvider({
     fetcher: async (url) =>

@@ -87,6 +87,7 @@ export class PlaybackController {
     this.session.setQueue(preferences.queue, {
       autoplay: false,
       trackId: preferences.currentId,
+      trackIndex: preferences.currentIndex,
       source: preferences.queueSource,
     });
     this.session.seek(preferences.elapsed);
@@ -299,7 +300,7 @@ export class PlaybackController {
       this.seek(0);
       return;
     }
-    if (automatic && this.session.order === "repeatOne") {
+    if (automatic && this.session.order === "repeatOne" && !this.session.hasQueuedNext) {
       this.seek(0);
       await this.play();
       return;
@@ -345,19 +346,34 @@ export class PlaybackController {
     this.navigation.closeQueue();
     await this.loadCurrent({ autoplay: true });
   }
+  async insertTrackNext(track: Track, { autoplay = false } = {}): Promise<void> {
+    this.cancelSource();
+    this.advanceVersion++;
+    const hadCurrent = !!this.session.current;
+    if (!hadCurrent) {
+      this.queueVersion++;
+      this.moreRequest?.controller.abort();
+      this.moreRequest = null;
+      this.store.state.requests.more = false;
+    }
+    const index = this.session.insertNext(track);
+    this.store.state.announcement = autoplay
+      ? `正在播放 ${track.title}`
+      : `已添加到下一首播放：${track.title}`;
+    if (autoplay) {
+      this.session.select(index);
+      await this.loadCurrent({ autoplay: true });
+    } else if (!hadCurrent) await this.loadCurrent();
+    else {
+      this.effects.save();
+      this.publish();
+    }
+  }
   removeTrack(index: number): void {
-    const current = this.session.current;
     if (!this.session.queue[index]) return;
     const autoplay = this.session.playing || this.transport.desiredPlaying;
     const removingCurrent = index === this.session.index;
-    this.session.queue = this.session.queue.filter((_, itemIndex) => itemIndex !== index);
-    this.session.history = [];
-    this.session.index = removingCurrent
-      ? Math.min(index, Math.max(0, this.session.queue.length - 1))
-      : Math.max(
-          0,
-          this.session.queue.findIndex((track) => track.id === current?.id),
-        );
+    this.session.remove(index);
     if (removingCurrent) {
       this.session.elapsed = 0;
       void this.loadCurrent({ autoplay });

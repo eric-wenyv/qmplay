@@ -178,6 +178,168 @@ test("an explicitly cleared saved queue never triggers a replacement playlist", 
   assert.equal(app.getSnapshot().playback.current, null);
 });
 
+test("song insertion preserves the source, audio and progress until explicitly played", async (t) => {
+  const { app, audio, saved, playbackRequests } = await setup(t);
+  await app.switchSource("liked");
+  await app.selectTrack(1);
+  app.seek(35);
+  await app.showRadio();
+  const before = app.getSnapshot();
+  const loads = audio.loads;
+  const requests = playbackRequests.length;
+  await app.insertTrackNext(song("queued"));
+  assert.equal(audio.loads, loads);
+  assert.equal(playbackRequests.length, requests);
+  assert.equal(audio.paused, false);
+  assert.equal(app.getSnapshot().playback.elapsed, 35);
+  assert.equal(app.getSnapshot().playback.current.id, "b");
+  assert.deepEqual(app.getSnapshot().playback.source, before.playback.source);
+  assert.deepEqual(
+    before.playback.queue.map((track) => track.id),
+    ["a", "b", "c"],
+  );
+  assert.deepEqual(
+    saved.at(-1).queue.map((track) => track.id),
+    ["a", "b", "queued", "c"],
+  );
+  await app.insertTrackNext(song("play-now"), { autoplay: true });
+  assert.deepEqual(
+    app.getSnapshot().playback.queue.map((track) => track.id),
+    ["a", "b", "play-now", "queued", "c"],
+  );
+  assert.equal(app.getSnapshot().playback.current.id, "play-now");
+  assert.equal(audio.paused, false);
+  assert.equal(app.getSnapshot().navigation.view, "browse");
+  await app.advance("previous");
+  assert.equal(app.getSnapshot().playback.current.id, "b");
+  await app.advance("next");
+  assert.equal(app.getSnapshot().playback.current.id, "queued");
+});
+
+for (const autoplay of [false, true]) {
+  test(`song insertion creates an empty queue (autoplay=${autoplay})`, async (t) => {
+    const { app, audio } = await setup(t);
+    await app.insertTrackNext(song("first"), { autoplay });
+    assert.deepEqual(
+      app.getSnapshot().playback.queue.map((track) => track.id),
+      ["first"],
+    );
+    assert.equal(app.getSnapshot().playback.current.id, "first");
+    assert.equal(audio.paused, !autoplay);
+    assert.equal(app.getSnapshot().playback.source, null);
+  });
+}
+
+test("queue-next insertion preserves pause and handles repeated current songs by index", async (t) => {
+  const { app, audio } = await setup(t);
+  await app.switchSource("liked");
+  app.pause();
+  app.seek(18);
+  const loads = audio.loads;
+  await app.insertTrackNext(songs[0]);
+  assert.equal(audio.loads, loads);
+  assert.equal(audio.paused, true);
+  assert.equal(app.getSnapshot().playback.elapsed, 18);
+  await app.selectTrack(1);
+  app.removeTrack(0);
+  assert.equal(app.getSnapshot().playback.index, 0);
+  assert.equal(app.getSnapshot().playback.current.id, "a");
+});
+
+test("duplicate songs restore the selected occurrence and progress after restarting", async (t) => {
+  const { app, saved } = await setup(t);
+  await app.switchSource("liked");
+  await app.insertTrackNext(songs[0], { autoplay: true });
+  app.seek(28);
+  const restored = await setup(t, saved.at(-1));
+  assert.equal(restored.app.getSnapshot().playback.index, 1);
+  assert.equal(restored.app.getSnapshot().playback.current.id, "a");
+  assert.equal(restored.app.getSnapshot().playback.elapsed, 28);
+  assert.equal(restored.audio.paused, true);
+  await restored.app.advance("next");
+  assert.equal(restored.app.getSnapshot().playback.current.id, "b");
+});
+
+test("an explicit song insertion cancels source replacement and pending automatic advance", async (t) => {
+  const { app, provider, audio } = await setup(t);
+  await app.switchSource("radio", { id: "42" });
+  await app.selectTrack(2);
+  const more = deferred();
+  provider.getRadioTracks = () => more.promise;
+  const advancing = app.advance("next", true);
+  await app.insertTrackNext(song("next"));
+  more.resolve([song("page")]);
+  await advancing;
+  assert.equal(app.getSnapshot().playback.current.id, "c");
+  await app.advance("next", true);
+  assert.equal(app.getSnapshot().playback.current.id, "next");
+  const source = deferred();
+  provider.getRecommendedTracks = () => source.promise;
+  const switching = app.switchSource("radio", { id: "new" });
+  await app.insertTrackNext(song("now"), { autoplay: true });
+  source.resolve([song("stale")]);
+  await switching;
+  assert.equal(app.getSnapshot().playback.current.id, "now");
+  assert.equal(audio.paused, false);
+});
+
+test("song search cancels stale requests, pages without replacing playback and survives mobile suspension", async (t) => {
+  const { app, provider } = await setup(t, {}, { mobile: true });
+  await app.switchSource("liked");
+  await app.showRadio();
+  const queue = app.getSnapshot().playback.queue;
+  const old = deferred();
+  let signal;
+  provider.searchTracks = (_query, _page, options) => {
+    signal = options.signal;
+    return old.promise;
+  };
+  const stale = app.searchTracks("old");
+  provider.searchTracks = async (_query, page) => ({
+    tracks: page === 1 ? [song("one")] : [song("one"), song("two")],
+    hasMore: page === 1,
+  });
+  await app.searchTracks("new");
+  assert.equal(signal.aborted, true);
+  old.resolve({ tracks: [song("stale")], hasMore: false });
+  await stale;
+  assert.deepEqual(
+    app.getSnapshot().catalog.tracks.map((track) => track.id),
+    ["one"],
+  );
+  await app.loadMoreTracks();
+  assert.deepEqual(
+    app.getSnapshot().catalog.tracks.map((track) => track.id),
+    ["one", "two"],
+  );
+  assert.equal(app.getSnapshot().catalog.hasMoreTracks, false);
+  assert.equal(app.getSnapshot().playback.queue, queue);
+  const pending = deferred();
+  provider.searchTracks = () => pending.promise;
+  const search = app.searchTracks("suspended");
+  app.returnToPlayer();
+  pending.resolve({ tracks: [song("mobile")], hasMore: false });
+  await search;
+  app.resumeMobilePage();
+  assert.equal(app.getSnapshot().catalog.tracks[0].id, "mobile");
+  const late = deferred();
+  provider.searchTracks = (_query, _page, options) => {
+    signal = options.signal;
+    return late.promise;
+  };
+  const leaving = app.searchTracks("leaving");
+  app.showSearch();
+  assert.equal(signal.aborted, true);
+  late.resolve({ tracks: [song("late")], hasMore: false });
+  await leaving;
+  assert.deepEqual(app.getSnapshot().catalog.tracks, []);
+  assert.equal(app.getSnapshot().requests.trackSearch, false);
+  await app.showRadio();
+  await app.searchTracks("");
+  assert.equal(app.getSnapshot().catalog.trackQuery, "");
+  assert.deepEqual(app.getSnapshot().catalog.tracks, []);
+});
+
 for (const mobile of [false, true]) {
   test(`personal radio remains first and continues with subsequent batches (${mobile ? "mobile" : "desktop"})`, async (t) => {
     const { app, provider, audio } = await setup(t, {}, { mobile });
@@ -565,6 +727,91 @@ test("browsing albums records history without replacing the playing source", asy
   assert.equal(app.session.source.type, "album");
 });
 
+test("album song browsing pages independently of playback and preserves the album catalogue on return", async (t) => {
+  const { app, audio, provider } = await setup(t);
+  await app.switchSource("liked");
+  app.seek(35);
+  await app.showArtistAlbums(artist("singer"));
+  const before = app.getSnapshot();
+  const loads = audio.loads;
+  const pages = [];
+  provider.getAlbumTrackPage = async (_id, page) => {
+    pages.push(page);
+    return { tracks: page === 1 ? [song("one")] : [song("one"), song("two")], hasMore: page === 1 };
+  };
+  await app.showAlbumTracks(album("record"));
+  assert.equal(app.getSnapshot().navigation.view, "albumTracks");
+  assert.equal(app.getSnapshot().catalog.album.id, "record");
+  assert.equal(app.getSnapshot().playback.queue, before.playback.queue);
+  assert.equal(app.getSnapshot().playback.elapsed, 35);
+  assert.equal(audio.loads, loads);
+  await app.loadMoreAlbumTracks();
+  assert.deepEqual(pages, [1, 2]);
+  assert.deepEqual(
+    app.getSnapshot().catalog.albumTracks.map((item) => item.id),
+    ["one", "two"],
+  );
+  assert.equal(app.getSnapshot().catalog.hasMoreAlbumTracks, false);
+  app.returnToAlbums();
+  assert.equal(app.getSnapshot().navigation.view, "albums");
+  assert.equal(app.getSnapshot().catalog.albums, before.catalog.albums);
+});
+
+test("album song requests coalesce, cancel old albums and retry the failed page", async (t) => {
+  const { app, provider } = await setup(t);
+  const old = deferred();
+  let oldSignal;
+  provider.getAlbumTrackPage = (_id, _page, { signal }) => {
+    oldSignal = signal;
+    return old.promise;
+  };
+  const stale = app.showAlbumTracks(album("old"));
+  provider.getAlbumTrackPage = async () => ({ tracks: [song("new")], hasMore: true });
+  await app.showAlbumTracks(album("new"));
+  assert.equal(oldSignal.aborted, true);
+  old.resolve({ tracks: [song("stale")], hasMore: false });
+  await stale;
+  assert.deepEqual(
+    app.getSnapshot().catalog.albumTracks.map((item) => item.id),
+    ["new"],
+  );
+  const next = deferred();
+  let calls = 0;
+  provider.getAlbumTrackPage = (_id, page) => {
+    calls++;
+    assert.equal(page, 2);
+    return next.promise;
+  };
+  const pending = app.loadMoreAlbumTracks();
+  await app.loadMoreAlbumTracks();
+  assert.equal(calls, 1);
+  next.reject(new Error("分页网络故障"));
+  await pending;
+  assert.equal(app.getSnapshot().requests.albumTracks, false);
+  assert.equal(app.getSnapshot().catalog.hasMoreAlbumTracks, true);
+  const retry = app.getSnapshot().notice.retry;
+  provider.getAlbumTrackPage = async (_id, page) => {
+    assert.equal(page, 2);
+    return { tracks: [song("next")], hasMore: false };
+  };
+  await retry();
+  assert.deepEqual(
+    app.getSnapshot().catalog.albumTracks.map((item) => item.id),
+    ["new", "next"],
+  );
+  const leaving = deferred();
+  provider.getAlbumTrackPage = (_id, _page, { signal }) => {
+    oldSignal = signal;
+    return leaving.promise;
+  };
+  const left = app.showAlbumTracks(album("leaving"));
+  app.returnToAlbums();
+  assert.equal(oldSignal.aborted, true);
+  leaving.resolve({ tracks: [song("late")], hasMore: false });
+  await left;
+  assert.deepEqual(app.getSnapshot().catalog.albumTracks, []);
+});
+
 test("album pagination coalesces calls and cancels stale responses when another page is chosen", async (t) => {
   const { app, provider } = await setup(t);
   const page = deferred();
@@ -589,7 +836,7 @@ test("album pagination coalesces calls and cancels stale responses when another 
   );
 });
 
-for (const pageName of ["search", "albums", "browse"]) {
+for (const pageName of ["search", "albums", "albumTracks", "browse"]) {
   test(`mobile ${pageName} requests survive suspension at the player`, async (t) => {
     const { app, provider } = await setup(t, {}, { mobile: true });
     const result = deferred();
@@ -607,13 +854,19 @@ for (const pageName of ["search", "albums", "browse"]) {
       provider.getRadioStations = () => result.promise;
       pending = app.showRadio();
     }
+    if (pageName === "albumTracks") {
+      provider.getAlbumTrackPage = () => result.promise;
+      pending = app.showAlbumTracks(album("record"));
+    }
     app.returnToPlayer();
     result.resolve(
       pageName === "search"
         ? [artist("found")]
         : pageName === "albums"
           ? { albums: [album("found")], hasMore: false }
-          : [{ id: "42", name: "found", group: "", coverUrl: "" }],
+          : pageName === "albumTracks"
+            ? { tracks: [song("found")], hasMore: false }
+            : [{ id: "42", name: "found", group: "", coverUrl: "" }],
     );
     await pending;
     app.resumeMobilePage();
@@ -624,7 +877,9 @@ for (const pageName of ["search", "albums", "browse"]) {
         ? catalog.artists.some((item) => item.id === "found")
         : pageName === "albums"
           ? catalog.albums.some((item) => item.id === "found")
-          : catalog.stations.some((item) => item.id === "42"),
+          : pageName === "albumTracks"
+            ? catalog.albumTracks.some((item) => item.id === "found")
+            : catalog.stations.some((item) => item.id === "42"),
     );
   });
 }
@@ -742,7 +997,7 @@ test("authentication refresh keeps valid playback on network errors and isolates
 });
 
 test("suspension ignores late playback pages, album pages and favorite mutations", async (t) => {
-  for (const kind of ["queue", "albums", "favorite"]) {
+  for (const kind of ["queue", "albums", "albumTracks", "favorite"]) {
     const { app, provider } = await setup(t, {
       queue: songs,
       queueSource: { type: "artist", resource: { id: "singer" }, page: 1, hasMore: true },
@@ -762,10 +1017,14 @@ test("suspension ignores late playback pages, album pages and favorite mutations
       pending = app.toggleLike();
       await settle();
     }
+    if (kind === "albumTracks") {
+      provider.getAlbumTrackPage = () => result.promise;
+      pending = app.showAlbumTracks(album("record"));
+    }
     app.stop();
     const stopped = app.getSnapshot();
     result.resolve(
-      kind === "queue"
+      kind === "queue" || kind === "albumTracks"
         ? { tracks: [song("stale")], hasMore: false }
         : kind === "albums"
           ? { albums: [album("stale")], hasMore: false }

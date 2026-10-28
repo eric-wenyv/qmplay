@@ -355,6 +355,23 @@ export class QQMusicProvider {
       .map(normalizeArtist)
       .filter(present);
   }
+  async searchTracks(
+    query: string,
+    page = 1,
+    options?: RequestOptions,
+  ): Promise<{ tracks: Track[]; hasMore: boolean }> {
+    const term = query.trim();
+    if (!term) return { tracks: [], hasMore: false };
+    const limit = 50;
+    const body = await this.request("/getSearchByKey", { key: term, page, limit }, options);
+    const song = object(at(body, "data", "song"));
+    if (!Array.isArray(song.list)) throw new Error("歌曲搜索数据不完整，请重试");
+    const total = Number(song.totalnum);
+    return {
+      tracks: normalizeTracks(song.list),
+      hasMore: Number.isFinite(total) ? page * limit < total : song.list.length === limit,
+    };
+  }
   async getFollowerCount(id: string, options?: RequestOptions): Promise<number | null> {
     const cached = this.followerCache.get(id);
     if (cached !== undefined) return cached;

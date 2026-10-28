@@ -3,6 +3,11 @@ import assert from "node:assert/strict";
 import { QQMusicProvider } from "../src/api.js";
 import proxy from "../electron/api.cjs";
 const reply = (value) => ({ ok: true, json: async () => ({ data: value }) });
+test("desktop and browser proxies allow song search with read-only methods", () => {
+  assert.equal(proxy.allowedApiRequest("/getSearchByKey", "GET"), true);
+  assert.equal(proxy.allowedApiRequest("/getSearchByKey", "HEAD"), true);
+  assert.equal(proxy.allowedApiRequest("/getSearchByKey", "POST"), false);
+});
 test("collects every favorite page before returning a normalized snapshot with numeric song IDs", async () => {
   const urls = [];
   const provider = new QQMusicProvider({

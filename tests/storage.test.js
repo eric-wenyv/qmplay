@@ -10,6 +10,17 @@ const memory = () => ({
     this.value = value;
   },
 });
+test("selected duplicate queue positions round-trip and malformed indexes are ignored", () => {
+  const storage = memory();
+  const track = { id: "same", title: "同一首歌" };
+  writeLibrary({ queue: [track, track], liked: [], currentId: "same", currentIndex: 1 }, storage);
+  assert.equal(readLibrary(storage).currentIndex, 1);
+  assert.equal(readLibrary(storage).queue.length, 2);
+  for (const currentIndex of [-1, 0.5, "1", null]) {
+    storage.value = JSON.stringify({ currentIndex });
+    assert.equal(readLibrary(storage).currentIndex, undefined);
+  }
+});
 test("restores the previous library after renaming and prefers subsequent qmplay saves", () => {
   const legacy = JSON.stringify({
     queue: [{ id: "saved-song", title: "上次播放" }],

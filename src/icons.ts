@@ -9,6 +9,7 @@ const paths: Record<string, string> = {
   minus: '<path d="M5 12h14"/>',
   search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/>',
   arrowRight: '<path d="M4 12h15m-5-5 5 5-5 5"/>',
+  arrowLeft: '<path d="M20 12H5m5-5-5 5 5 5"/>',
   repeat: '<path d="m17 2 4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4m14-1v2a3 3 0 0 1-3 3H3"/>',
   repeatOne:
     '<path d="m17 2 4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4m14-1v2a3 3 0 0 1-3 3H3m8-8 1-1v6"/>',
@@ -20,6 +21,7 @@ const paths: Record<string, string> = {
   play: '<path d="m8 5 11 7-11 7V5Z" fill="currentColor" stroke="currentColor" stroke-width="1.5"/>',
   pause: '<path d="M8 5v14M16 5v14" stroke-width="3.5"/>',
   queue: '<path d="M4 6h16M4 12h16M4 18h10"/><circle cx="19" cy="18" r="1" fill="currentColor"/>',
+  queueNext: '<path d="M4 6h16M4 12h10M4 18h7m7-4v8m-4-4h8"/>',
   check: '<path d="m5 12 4 4L19 6"/>',
 };
 

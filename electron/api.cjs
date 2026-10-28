@@ -7,6 +7,7 @@ const GET_PATHS = new Set([
   "/getSingerList",
   "/getSingerStarNum",
   "/getSmartbox",
+  "/getSearchByKey",
   "/getSingerHotsong",
   "/getRadioLists",
   "/getRadioTracks",

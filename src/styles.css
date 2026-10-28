@@ -652,6 +652,25 @@ h1 {
   cursor: pointer;
   opacity: 0.4;
 }
+.track-result-row {
+  position: relative;
+  min-width: 0;
+  border-radius: 10px;
+  transition: background 0.2s;
+}
+.track-result-row:hover,
+.track-result-row:focus-within {
+  background: #ffffff0d;
+}
+.track-next {
+  position: absolute;
+  right: 3px;
+  top: 0;
+  bottom: 0;
+  margin-block: auto;
+  width: 44px;
+  height: 44px;
+}
 .artist-results {
   flex: 1;
   min-width: 0;
@@ -679,6 +698,11 @@ h1 {
 .artist-row:hover {
   background: #ffffff0d;
   transform: translateX(3px);
+}
+.track-result-row > .artist-row {
+  padding-right: 54px;
+  background: none;
+  transform: none;
 }
 .artist-avatar {
   display: grid;
@@ -741,22 +765,6 @@ h1 {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.artist-row > .icon-slot {
-  width: 17px;
-  height: 17px;
-  margin-right: 8px;
-  color: #ffffffad;
-  opacity: 0;
-  transform: translateX(-5px);
-  transition:
-    opacity 0.2s,
-    transform 0.2s;
-}
-.artist-row:hover > .icon-slot,
-.artist-row:focus-visible > .icon-slot {
-  opacity: 1;
-  transform: translateX(0);
 }
 .search-empty {
   text-align: center;
@@ -859,10 +867,11 @@ h1 {
   margin-bottom: 4px;
   transition: background 0.2s;
 }
-.queue-row:hover {
+.queue-item:hover,
+.queue-item:focus-within {
   background: #ffffff0d;
 }
-.queue-row[aria-current="true"] {
+.queue-item[data-current="true"] {
   background: #ffffff16;
 }
 .queue-number {
@@ -1235,9 +1244,6 @@ body.desktop {
 .radio-avatar {
   border-radius: 8px;
 }
-.artist-row > .icon-slot {
-  opacity: 0.6;
-}
 .results-message {
   font-size: 12px;
   color: var(--muted);
@@ -1310,22 +1316,27 @@ body.desktop {
 .lyric-line:hover {
   color: white;
 }
-.queue-row {
-  padding-right: 5px;
-}
 .queue-remove {
-  font-size: 17px;
+  position: absolute;
+  right: 3px;
+  top: 0;
+  bottom: 0;
+  margin-block: auto;
+  width: 44px;
+  height: 44px;
   color: #ffffff9e;
-  padding: 8px;
 }
 .queue-item {
-  display: flex;
-  align-items: center;
+  position: relative;
   height: 70px;
+  border-radius: 9px;
+  transition: background 0.2s;
 }
 .queue-item .queue-row {
-  flex: 1;
   min-width: 0;
+  height: 100%;
+  padding-right: 52px;
+  margin-bottom: 0;
 }
 .empty-view {
   max-width: 78%;

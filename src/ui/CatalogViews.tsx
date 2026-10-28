@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { artworkUrl } from "../api.js";
 import type { AppSnapshot, Artist, MusicApplication } from "../contracts.js";
 import { Icon } from "./Icon.js";
+import { TrackRow } from "./TrackRow.js";
 
 function ArtistRow({ app, artist }: { app: MusicApplication; artist: Artist }) {
   return (
@@ -22,7 +23,6 @@ function ArtistRow({ app, artist }: { app: MusicApplication; artist: Artist }) {
           人关注
         </span>
       </span>
-      <Icon name="play" />
     </button>
   );
 }
@@ -195,7 +195,7 @@ export function AlbumsView({ app, snapshot }: { app: MusicApplication; snapshot:
             if (artist) void app.switchSource("artist", artist);
           }}
         >
-          播放全部 <Icon name="play" />
+          播放全部
         </button>
       </div>
       <div
@@ -216,8 +216,8 @@ export function AlbumsView({ app, snapshot }: { app: MusicApplication; snapshot:
             className="artist-row"
             type="button"
             data-album={album.id}
-            aria-label={`播放 ${album.name}`}
-            onClick={() => void app.switchSource("album", album)}
+            aria-label={`查看 ${album.name} 的歌曲`}
+            onClick={() => void app.showAlbumTracks(album)}
           >
             <span className="artist-avatar radio-avatar">
               <img src={artworkUrl(album.coverUrl)} alt="" loading="lazy" />
@@ -226,45 +226,9 @@ export function AlbumsView({ app, snapshot }: { app: MusicApplication; snapshot:
               <span className="artist-name">{album.name}</span>
               <span className="artist-followers">{album.publishDate}</span>
             </span>
-            <Icon name="play" />
           </button>
         ))}
         {snapshot.requests.albums && <p className="results-message">正在加载专辑…</p>}
-      </div>
-    </section>
-  );
-}
-
-export function RadioView({ app, snapshot }: { app: MusicApplication; snapshot: AppSnapshot }) {
-  return (
-    <section
-      id="browse-view"
-      className="search-view"
-      aria-label="选择电台"
-      hidden={snapshot.navigation.view !== "browse"}
-    >
-      <div className="browse-heading">
-        <h2>听见此刻</h2>
-      </div>
-      <div id="radio-results" className="artist-results">
-        {snapshot.catalog.stations.map((station) => (
-          <button
-            key={station.id}
-            type="button"
-            className="artist-row"
-            data-station={station.id}
-            onClick={() => void app.switchSource("radio", station)}
-          >
-            <span className="artist-avatar radio-avatar">
-              <img src={artworkUrl(station.coverUrl)} alt="" loading="lazy" />
-            </span>
-            <span className="artist-row-copy">
-              <span className="artist-name">{station.name}</span>
-              <span className="artist-followers">{station.group}</span>
-            </span>
-            <Icon name="play" />
-          </button>
-        ))}
       </div>
     </section>
   );
@@ -287,29 +251,13 @@ export function FavoritesView({ app, snapshot }: { app: MusicApplication; snapsh
           disabled={!snapshot.library.liked.length}
           onClick={() => void app.switchSource("liked")}
         >
-          播放全部 <Icon name="play" />
+          播放全部
         </button>
       </div>
       <div id="liked-results" className="artist-results" aria-label="收藏歌曲">
         {snapshot.library.liked.length ? (
           snapshot.library.liked.map((track) => (
-            <button
-              key={track.id}
-              type="button"
-              className="artist-row"
-              data-liked-track={track.id}
-              aria-label={`播放 ${track.title}，${track.artist || ""}`}
-              onClick={() => void app.switchSource("liked", null, { trackId: track.id })}
-            >
-              <span className="artist-avatar">
-                <img src={artworkUrl(track.coverUrl || "")} alt="" loading="lazy" />
-              </span>
-              <span className="artist-row-copy">
-                <span className="artist-name">{track.title}</span>
-                <span className="artist-followers">{track.artist}</span>
-              </span>
-              <Icon name="play" />
-            </button>
+            <TrackRow key={track.id} app={app} track={track} origin="liked" />
           ))
         ) : (
           <p className="results-message">留一首喜欢的歌给自己</p>

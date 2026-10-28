@@ -4,12 +4,14 @@ import { readLibrary, writeLibrary } from "../storage.js";
 import type { AudioElementLike } from "../audio.js";
 import type {
   AppSnapshot,
+  Album,
   Artist,
   Library,
   MusicApplication,
   Resource,
   SourceType,
   StorageLike,
+  Track,
   User,
   View,
 } from "../contracts.js";
@@ -80,14 +82,22 @@ export class Application implements MusicApplication {
         recentArtists: preferences.artistHistory,
         artist: null,
         albums: [],
+        album: null,
+        albumTracks: [],
+        hasMoreAlbumTracks: false,
         stations: [],
+        trackQuery: "",
+        tracks: [],
+        hasMoreTracks: false,
         hasMoreAlbums: false,
       },
       library: { liked: [], busyIds: [] },
       requests: {
         source: false,
         search: false,
+        trackSearch: false,
         albums: false,
+        albumTracks: false,
         lyrics: false,
         more: false,
       },
@@ -196,6 +206,9 @@ export class Application implements MusicApplication {
       });
       this.store.state.catalog.artists = [];
       this.store.state.catalog.albums = [];
+      this.store.state.catalog.album = null;
+      this.store.state.catalog.albumTracks = [];
+      this.store.state.catalog.hasMoreAlbumTracks = false;
       this.store.state.catalog.artist = null;
       this.store.state.lyrics = [];
       this.playerStarted = false;
@@ -219,6 +232,7 @@ export class Application implements MusicApplication {
         order: session.order,
         queue: session.queue,
         currentId: session.current?.id,
+        currentIndex: session.index,
         elapsed: session.elapsed,
         queueSource: session.source,
         artistHistory: this.store.state.catalog.recentArtists,
@@ -332,6 +346,15 @@ export class Application implements MusicApplication {
   cancelSearch(): void {
     this.catalog.cancelSearch();
   }
+  searchTracks(query: string): Promise<void> {
+    return this.catalog.searchTracks(query);
+  }
+  cancelTrackSearch(): void {
+    this.catalog.cancelTrackSearch();
+  }
+  loadMoreTracks(): Promise<void> {
+    return this.catalog.loadMoreTracks();
+  }
   loadFollowerCount(id: string): Promise<void> {
     return this.catalog.loadFollowerCount(id);
   }
@@ -340,6 +363,15 @@ export class Application implements MusicApplication {
   }
   loadMoreAlbums(): Promise<void> {
     return this.catalog.loadMoreAlbums();
+  }
+  showAlbumTracks(album: Album): Promise<void> {
+    return this.catalog.showAlbumTracks(album);
+  }
+  loadMoreAlbumTracks(): Promise<void> {
+    return this.catalog.loadMoreAlbumTracks();
+  }
+  returnToAlbums(): void {
+    this.navigation.browse("albums");
   }
   showRadio(): Promise<void> {
     return this.catalog.showRadio();
@@ -380,6 +412,9 @@ export class Application implements MusicApplication {
   }
   selectTrack(index: number): Promise<void> {
     return this.playback.selectTrack(index);
+  }
+  insertTrackNext(track: Track, options?: { autoplay?: boolean }): Promise<void> {
+    return this.playback.insertTrackNext(track, options);
   }
   removeTrack(index: number): void {
     this.playback.removeTrack(index);

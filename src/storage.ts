@@ -99,6 +99,12 @@ export function readLibrary(storage: StorageLike = globalThis.localStorage): Lib
         station && /^(new|\d+)$/.test(station.id) ? station : { id: "new", name: "每日新歌" },
       artist,
       currentId: typeof data.currentId === "string" ? data.currentId : "",
+      currentIndex:
+        typeof data.currentIndex === "number" &&
+        Number.isSafeInteger(data.currentIndex) &&
+        data.currentIndex >= 0
+          ? data.currentIndex
+          : undefined,
       elapsed: Math.max(0, Number(data.elapsed) || 0),
     };
   } catch {

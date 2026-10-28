@@ -286,6 +286,328 @@ async function chooseMode(mode) {
   await click(`.mode-option[data-mode="${mode}"]`);
 }
 
+for (const mobile of [false, true]) {
+  test(`radio song rows play while their next buttons queue without interruption (${mobile ? "mobile" : "desktop"})`, async (t) => {
+    const found = { id: "found", title: "晴天 <img src=x>", artist: "周杰伦" };
+    const player = await mount(t, {
+      mobile,
+      provider: {
+        async searchTracks(query, page) {
+          player.requests.push(`songs:${query}:${page}`);
+          return { tracks: [found], hasMore: false };
+        },
+      },
+    });
+    await act(async () => {
+      await player.app.play();
+    });
+    await chooseMode("radio");
+    assert.equal(document.querySelector("#browse-view").firstElementChild.id, "track-search");
+    assert.equal(document.querySelector("#browse-view h2"), null);
+    assert.notEqual(document.activeElement.id, "track-search-input");
+    await input("#track-search-input", "晴天");
+    await act(async () => {
+      document
+        .querySelector("#track-search")
+        .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await tick();
+    });
+    assert.equal(document.querySelector("#radio-results"), null);
+    assert.equal(document.querySelector("#track-results .artist-name").textContent, found.title);
+    assert.equal(document.querySelector("#track-results .artist-name img"), null);
+    const row = document.querySelector('[data-search-track="found"]');
+    const next = document.querySelector('[data-next-track="found"]');
+    assert(next);
+    assert.equal(next.title, "添加到下一首播放");
+    assert.equal(row.parentElement === next.parentElement, true);
+    assert.equal(document.querySelector("#track-results button button"), null);
+    assert.equal(row.querySelector(".icon-slot"), null);
+    const loads = player.audio.loads;
+    const elapsed = player.app.getSnapshot().playback.elapsed;
+    await act(async () => {
+      const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+      row.dispatchEvent(event);
+      assert.equal(event.defaultPrevented, false);
+    });
+    assert.equal(document.querySelector(".track-context-menu"), null);
+    await click('[data-next-track="found"]');
+    assert.equal(player.audio.loads, loads);
+    assert.equal(player.audio.paused, false);
+    assert.equal(player.app.getSnapshot().playback.elapsed, elapsed);
+    assert.deepEqual(
+      player.app.getSnapshot().playback.queue.map((track) => track.id),
+      ["a", "found", "b", "c"],
+    );
+    await click('[data-search-track="found"]');
+    assert.equal(player.app.getSnapshot().playback.current.id, "found");
+    assert.equal(player.audio.paused, false);
+    assert.deepEqual(
+      player.app.getSnapshot().playback.queue.map((track) => track.id),
+      ["a", "found", "found", "b", "c"],
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 310));
+    });
+    assert.deepEqual(
+      player.requests.filter((item) => item.startsWith("songs:")),
+      ["songs:晴天:1"],
+    );
+    await input("#track-search-input", "");
+    assert(document.querySelector('[data-station="99"]'));
+  });
+}
+
+test("artist, album, favorite and radio lists use whole-row actions without trailing play icons", async (t) => {
+  const player = await mount(t);
+  const assertNoPlayIcon = (selector) => {
+    assert(document.querySelector(`${selector} .artist-row`));
+    assert.equal(document.querySelectorAll(`${selector} .artist-row > .icon-slot`).length, 0);
+  };
+  await chooseMode("radio");
+  assertNoPlayIcon("#radio-results");
+  await chooseMode("artist");
+  await input("#search-input", "周杰伦");
+  await act(async () => {
+    document
+      .querySelector("#artist-search")
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await tick();
+  });
+  assertNoPlayIcon("#artist-results");
+  await click('[data-artist="singer"]');
+  assert.equal(player.app.getSnapshot().navigation.view, "albums");
+  assertNoPlayIcon("#album-results");
+  await click('[data-album="album"]');
+  assert.equal(player.app.getSnapshot().navigation.view, "albumTracks");
+  assert.equal(player.app.getSnapshot().playback.current.id, "a");
+  assertNoPlayIcon("#album-track-results");
+  await click("#play-album");
+  assert.equal(player.app.getSnapshot().playback.current.id, "album-song");
+  await click("#like-toggle");
+  await chooseMode("liked");
+  assertNoPlayIcon("#liked-results");
+  await click('[data-liked-track="album-song"]');
+  assert.equal(player.app.getSnapshot().playback.source.type, "album");
+  assert.deepEqual(
+    player.app.getSnapshot().playback.queue.map((track) => track.id),
+    ["album-song", "album-song"],
+  );
+  await click("#play-liked");
+  assert.equal(player.app.getSnapshot().playback.source.type, "liked");
+  assert.deepEqual(
+    player.app.getSnapshot().playback.queue.map((track) => track.id),
+    ["album-song"],
+  );
+});
+
+for (const mobile of [false, true]) {
+  test(`favorite song rows insert into the current queue and only play-all replaces it (${mobile ? "mobile" : "desktop"})`, async (t) => {
+    const favorites = [
+      { id: "favorite", title: "喜欢的歌", artist: "歌手", duration: 200 },
+      { id: "other-favorite", title: "另一首", artist: "歌手", duration: 200 },
+    ];
+    const player = await mount(t, {
+      mobile,
+      provider: {
+        async getFavorites() {
+          return favorites;
+        },
+      },
+    });
+    await act(async () => {
+      await player.app.play();
+      player.app.seek(32);
+    });
+    await chooseMode("liked");
+    const source = player.app.getSnapshot().playback.source;
+    const loads = player.audio.loads;
+    assert.equal(document.querySelectorAll("#liked-results [data-next-track]").length, 2);
+    assert.equal(document.querySelector("#liked-results button button"), null);
+    await click('#liked-results [data-next-track="favorite"]');
+    assert.equal(player.audio.loads, loads);
+    assert.equal(player.audio.paused, false);
+    assert.equal(player.app.getSnapshot().playback.current.id, "a");
+    assert.equal(player.app.getSnapshot().playback.elapsed, 32);
+    assert.deepEqual(player.app.getSnapshot().playback.source, source);
+    assert.deepEqual(
+      player.app.getSnapshot().playback.queue.map((track) => track.id),
+      ["a", "favorite", "b", "c"],
+    );
+    await click('[data-liked-track="other-favorite"]');
+    assert.equal(player.app.getSnapshot().playback.current.id, "other-favorite");
+    assert.equal(player.audio.paused, false);
+    assert.equal(player.app.getSnapshot().navigation.view, "liked");
+    assert.deepEqual(player.app.getSnapshot().playback.source, source);
+    assert.deepEqual(
+      player.app.getSnapshot().playback.queue.map((track) => track.id),
+      ["a", "other-favorite", "favorite", "b", "c"],
+    );
+    assert.deepEqual(player.app.getSnapshot().library.liked, favorites);
+    await click("#play-liked");
+    assert.equal(player.app.getSnapshot().playback.source.type, "liked");
+    assert.deepEqual(
+      player.app.getSnapshot().playback.queue.map((track) => track.id),
+      ["favorite", "other-favorite"],
+    );
+    assert.equal(player.app.getSnapshot().playback.current.id, "favorite");
+    assert.equal(player.audio.paused, false);
+  });
+}
+
+test("favorite song actions create a queue when none exists", async (t) => {
+  const favorite = { id: "first-favorite", title: "第一首", duration: 200 };
+  const player = await mount(t, {
+    queue: [],
+    provider: {
+      async getFavorites() {
+        return [favorite];
+      },
+    },
+  });
+  await chooseMode("liked");
+  await click('[data-next-track="first-favorite"]');
+  assert.equal(player.app.getSnapshot().playback.current.id, "first-favorite");
+  assert.equal(player.audio.paused, true);
+  assert.equal(player.app.getSnapshot().playback.source, null);
+  await click('[data-liked-track="first-favorite"]');
+  assert.equal(player.audio.paused, false);
+  assert.deepEqual(
+    player.app.getSnapshot().playback.queue.map((track) => track.id),
+    ["first-favorite", "first-favorite"],
+  );
+});
+
+for (const mobile of [false, true]) {
+  test(`album selection browses songs and only play-all replaces playback (${mobile ? "mobile" : "desktop"})`, async (t) => {
+    const track = { id: "album-song", title: "专辑歌曲", artist: "歌手", duration: 200 };
+    const calls = [];
+    const player = await mount(t, {
+      mobile,
+      provider: {
+        async getAlbumTrackPage(_id, page) {
+          calls.push(page);
+          return {
+            tracks: page === 1 ? [track] : [{ ...track, id: "second" }],
+            hasMore: page === 1,
+          };
+        },
+      },
+    });
+    await act(async () => {
+      await player.app.play();
+      player.app.seek(32);
+    });
+    await chooseMode("artist");
+    await act(async () => {
+      await player.app.showArtistAlbums(artist);
+    });
+    const source = player.app.getSnapshot().playback.source;
+    const loads = player.audio.loads;
+    await click('[data-album="album"]');
+    assert.equal(player.app.getSnapshot().navigation.view, "albumTracks");
+    assert.equal(player.app.getSnapshot().navigation.mobileMode, mobile ? "artist" : "radio");
+    assert.equal(player.audio.loads, loads);
+    assert.equal(player.app.getSnapshot().playback.current.id, "a");
+    assert.equal(player.app.getSnapshot().playback.elapsed, 32);
+    await click('#album-track-results [data-next-track="album-song"]');
+    assert.equal(player.audio.loads, loads);
+    assert.equal(player.audio.paused, false);
+    assert.deepEqual(
+      player.app.getSnapshot().playback.queue.map((item) => item.id),
+      ["a", "album-song", "b", "c"],
+    );
+    await click('[data-album-track="album-song"]');
+    assert.equal(player.app.getSnapshot().playback.current.id, "album-song");
+    assert.deepEqual(player.app.getSnapshot().playback.source, source);
+    assert.deepEqual(
+      player.app.getSnapshot().playback.queue.map((item) => item.id),
+      ["a", "album-song", "album-song", "b", "c"],
+    );
+    await click("#album-track-results .load-more");
+    assert.deepEqual(calls, [1, 2]);
+    assert.equal(document.querySelectorAll("[data-album-track]").length, 2);
+    await click("#album-tracks-back");
+    assert.equal(player.app.getSnapshot().navigation.view, "albums");
+    await click('[data-album="album"]');
+    await click("#play-album");
+    assert.equal(player.app.getSnapshot().playback.source.type, "album");
+    assert.equal(player.app.getSnapshot().playback.current.id, "album-song");
+    assert.equal(player.audio.paused, false);
+    assert(!player.app.getSnapshot().playback.queue.some((item) => item.id === "a"));
+  });
+}
+
+test("queue remove buttons preserve the current song and remain separate from the full-row play action", async (t) => {
+  const player = await mount(t);
+  await act(async () => {
+    await player.app.play();
+    player.app.seek(28);
+  });
+  await click("#queue-toggle");
+  const row = document.querySelector('[data-index="1"]');
+  const remove = document.querySelector('[data-remove="1"]');
+  assert.equal(row.parentElement === remove.parentElement, true);
+  assert.equal(document.querySelector("#queue-list button button"), null);
+  const loads = player.audio.loads;
+  await click('[data-remove="1"]');
+  assert.equal(player.audio.loads, loads);
+  assert.equal(player.audio.paused, false);
+  assert.equal(player.app.getSnapshot().playback.current.id, "a");
+  assert.equal(player.app.getSnapshot().playback.elapsed, 28);
+  assert.equal(player.app.getSnapshot().navigation.queueOpen, true);
+  assert.deepEqual(
+    player.app.getSnapshot().playback.queue.map((item) => item.id),
+    ["a", "c"],
+  );
+});
+
+test("radio search defers IME input, clears stale rows and pages song results", async (t) => {
+  const calls = [];
+  const player = await mount(t, {
+    provider: {
+      async searchTracks(query, page) {
+        calls.push([query, page]);
+        return { tracks: [{ id: String(page), title: query }], hasMore: page === 1 };
+      },
+    },
+  });
+  await chooseMode("radio");
+  const field = document.querySelector("#track-search-input");
+  await act(async () => {
+    field.dispatchEvent(new dom.window.CompositionEvent("compositionstart", { bubbles: true }));
+  });
+  await input("#track-search-input", "晴");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 310));
+  });
+  assert.equal(calls.length, 0);
+  await input("#track-search-input", "晴天");
+  await act(async () => {
+    field.dispatchEvent(
+      new dom.window.CompositionEvent("compositionend", { bubbles: true, data: "晴天" }),
+    );
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 310));
+  });
+  assert.deepEqual(calls, [["晴天", 1]]);
+  await click("#track-results .load-more");
+  assert.deepEqual(calls, [
+    ["晴天", 1],
+    ["晴天", 2],
+  ]);
+  assert.equal(document.querySelectorAll("[data-search-track]").length, 2);
+  assert.equal(document.querySelector("#track-results .load-more"), null);
+  await input("#track-search-input", "新歌");
+  assert.equal(document.querySelector("[data-search-track]"), null);
+  await chooseMode("liked");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 310));
+  });
+  assert.equal(calls.length, 2);
+  assert.equal(player.app.getSnapshot().requests.trackSearch, false);
+});
+
 test("React restores an authenticated paused session and navigation preserves active playback", async (t) => {
   const player = await mount(t);
   assert.equal(player.app.getSnapshot().auth.state, "ready");
@@ -384,6 +706,10 @@ test("React search and album selection use typed data and render upstream text s
   assert.equal(document.querySelector("#albums-view").hidden, false);
   assert.equal(document.activeElement.id, "play-artist");
   await click('[data-album="album"]');
+  assert.equal(document.querySelector("#album-tracks-view").hidden, false);
+  assert.equal(player.app.getSnapshot().playback.current.id, "a");
+  assert.equal(player.app.getSnapshot().playback.source.type, "radio");
+  await click("#play-album");
   assert.equal(document.querySelector("#track-title").textContent, "专辑歌曲");
   assert.equal(player.app.getSnapshot().playback.source.type, "album");
 });
