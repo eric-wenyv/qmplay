@@ -48,6 +48,7 @@ async function bundledNavigation() {
             showSearch: () => choose("search", "artist"),
             showRadio: () => choose("browse", "radio"),
             showLiked: () => choose("liked", "liked"),
+            showQueue: () => choose("queue", "queue"),
           };
           update({});
           return { app, getSnapshot: () => snapshot,
@@ -349,11 +350,75 @@ for (const reducedMotion of [false, true]) {
               const disappearing = read();
               const closing = sample(120);
               const returning = read();
-              const closesInOrder = disappearing.opacity > 0 && disappearing.opacity < 1 &&
-                near(disappearing.position, chosenDistance) && near(disappearing.size, fullSize) &&
-                returning.opacity === 0 && near(returning.position, chosenDistance - 24);
+              const closesInOrder = disappearing.opacity === 1 && returning.opacity === 1 &&
+                near(disappearing.size, fullSize - 24) && near(returning.size, fullSize - 72) &&
+                near(disappearing.position, Math.min(chosenDistance, fullSize - 52 - 24)) &&
+                near(returning.position, Math.min(chosenDistance, fullSize - 52 - 72));
               finish();
               const collapsed = { toggleOpacity: style(toggle).opacity, menuVisibility: style(doc.querySelector("#mode-menu")).visibility };
+              // Check every selection, including changing rows: the edge reaches the chosen
+              // button before carrying it home, and no visible icon overlaps the moving button.
+              const rows = [...doc.querySelectorAll('.mode-option:not([hidden])')];
+              const collapseFailures = [];
+              for (const previousRow of rows) for (const chosenRow of rows) {
+                win.navigationTest.app.setMenu(true);
+                finish();
+                previousRow.click();
+                finish();
+                win.navigationTest.app.setMenu(true);
+                finish();
+                const controlBounds = control.getBoundingClientRect();
+                const chosenBounds = chosenRow.getBoundingClientRect();
+                const distance = mobile ? controlBounds.left - chosenBounds.left : chosenBounds.top - controlBounds.top;
+                const travelTime = (fullSize - 52) / 0.6;
+                chosenRow.click();
+                for (let time = 0; time <= travelTime + 80; time += 8) {
+                  sample(time);
+                  const state = read();
+                  const extent = Math.max(0, fullSize - 52 - time * 0.6);
+                  const toggleBounds = toggle.getBoundingClientRect();
+                  const frameBounds = frameNode.getBoundingClientRect();
+                  for (const row of rows) {
+                    const icon = row.querySelector('.icon-slot');
+                    if (Number(style(row).opacity) * Number(style(icon).opacity) * state.iconsOpacity < 0.001) continue;
+                    const bounds = icon.getBoundingClientRect();
+                    const overlapWidth = Math.min(bounds.right, frameBounds.right, toggleBounds.right) -
+                      Math.max(bounds.left, frameBounds.left, toggleBounds.left);
+                    const overlapHeight = Math.min(bounds.bottom, frameBounds.bottom, toggleBounds.bottom) -
+                      Math.max(bounds.top, frameBounds.top, toggleBounds.top);
+                    if (overlapWidth > 0.1 && overlapHeight > 0.1) {
+                      collapseFailures.push({ from: previousRow.dataset.mode, to: chosenRow.dataset.mode, time,
+                        overlap: row.dataset.mode, state });
+                    }
+                  }
+                  if (!${reducedMotion} && (!near(state.size, 52 + extent) ||
+                    !near(state.position, Math.min(distance, extent)) ||
+                    (time <= travelTime && state.opacity !== 1))) {
+                    collapseFailures.push({ from: previousRow.dataset.mode, to: chosenRow.dataset.mode, time, state });
+                  }
+                  if (!${reducedMotion} && time === 40 && distance < fullSize - 52) {
+                    const outermost = mobile ? 'radio' : 'artist';
+                    if (!near(state.icons[outermost], 0.5)) collapseFailures.push({ time, state, missingFade: outermost });
+                  }
+                  if (!${reducedMotion} && time === travelTime + 40 && !(state.opacity > 0 && state.opacity < 1)) {
+                    collapseFailures.push({ time, state, missingFrameFade: true });
+                  }
+                }
+                finish();
+              }
+              // Queue has no matching drawer row: its toggle returns only after the rows clear.
+              win.navigationTest.app.showQueue();
+              finish();
+              win.navigationTest.app.setMenu(true);
+              finish();
+              win.navigationTest.app.setMenu(false);
+              sample(40);
+              const queueReturning = read();
+              const queueDoesNotOverlap = ${reducedMotion} ||
+                (queueReturning.toggleOpacity === "0" && queueReturning.opacity === 1);
+              finish();
+              win.navigationTest.app.showRadio();
+              finish();
               // Dismiss and reopen during travel: neither direction may jump to an endpoint.
               toggle.click();
               sample(60);
@@ -449,8 +514,8 @@ for (const reducedMotion of [false, true]) {
               }
               win.navigationTest.unmount();
               const cleanedUp = captured === null && !doc.getAnimations().some((animation) => animation.effect.target === toggle);
-              return { name: frame.title, expanded, collapsed, unrollsInOrder, revealsInOrder, closesInOrder, reversesSmoothly, cleanedUp,
-                appearing, unrolling, firstRevealed, continuing, disappearing, returning, expansionDuration, mobileDragWorks, dragDetails, crossfade, reverseCrossfade, sharedCell,
+              return { name: frame.title, expanded, collapsed, unrollsInOrder, revealsInOrder, closesInOrder, reversesSmoothly, queueDoesNotOverlap, cleanedUp,
+                appearing, unrolling, firstRevealed, continuing, disappearing, returning, collapseFailures, expansionDuration, mobileDragWorks, dragDetails, crossfade, reverseCrossfade, sharedCell,
                 finishedOutward, settled: style(player).display === "none" && style(page).opacity === "1",
                 reduced: win.matchMedia("(prefers-reduced-motion: reduce)").matches,
                 animationCount: openingAnimations.length + closing.length + outward.length + inward.length };
@@ -471,6 +536,8 @@ for (const reducedMotion of [false, true]) {
         assert.equal(item.expanded.opacity, 1, detail);
         assert.equal(item.collapsed.toggleOpacity, "1", detail);
         assert.equal(item.collapsed.menuVisibility, "hidden", detail);
+        assert.deepEqual(item.collapseFailures, [], detail);
+        assert(item.queueDoesNotOverlap, detail);
         assert(
           item.finishedOutward && item.settled && item.cleanedUp && item.mobileDragWorks,
           detail,

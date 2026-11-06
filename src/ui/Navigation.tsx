@@ -152,7 +152,13 @@ export function Navigation({ app, snapshot }: { app: MusicApplication; snapshot:
                   role="menuitemradio"
                   aria-checked={selected === mode}
                   data-preview={preview === mode}
-                  style={{ "--mode-reveal-step": revealStep } as CSSProperties}
+                  style={
+                    {
+                      "--mode-reveal-step": revealStep,
+                      "--mode-hide-duration":
+                        step > selectedStep ? "var(--mode-step-duration)" : "0s",
+                    } as CSSProperties
+                  }
                   aria-label={labels[mode]}
                   data-tip={labels[mode]}
                   hidden={navigation.mobile && mode === "home"}

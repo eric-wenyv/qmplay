@@ -167,7 +167,8 @@ svg {
 .mode-control {
   --mode-frame-duration: 80ms;
   --mode-step-duration: 80ms;
-  --mode-unroll-duration: calc(3 * var(--mode-step-duration));
+  --mode-steps: 3;
+  --mode-unroll-duration: calc(var(--mode-steps) * var(--mode-step-duration));
   --mode-icons-delay: calc(
     var(--mode-frame-duration) + var(--mode-selected-step, 0) * var(--mode-step-duration)
   );
@@ -195,9 +196,9 @@ svg {
   overflow: hidden;
   box-shadow: 0 10px 24px -8px #00000055;
   transition:
-    opacity var(--mode-frame-duration) ease,
-    width 0s var(--mode-frame-duration),
-    height 0s var(--mode-frame-duration);
+    opacity var(--mode-frame-duration) ease var(--mode-unroll-duration),
+    width var(--mode-unroll-duration) linear,
+    height var(--mode-unroll-duration) linear;
 }
 .mode-control[data-open="true"] .mode-frame {
   height: calc(4 * var(--mode-size) + 5 * var(--mode-padding));
@@ -232,6 +233,9 @@ svg {
 }
 .mode-control[data-open="true"][data-selection="false"] .mode-toggle {
   opacity: 0;
+}
+.mode-control[data-open="false"][data-selection="false"] .mode-toggle {
+  transition-delay: var(--mode-unroll-duration), 0s, 0s;
 }
 .icon-button {
   position: relative;
@@ -293,8 +297,8 @@ svg {
   opacity: 0;
   pointer-events: none;
   transition:
-    opacity 60ms,
-    visibility 0s var(--mode-frame-duration);
+    opacity 0s calc(var(--mode-unroll-duration) + var(--mode-frame-duration)),
+    visibility 0s calc(var(--mode-unroll-duration) + var(--mode-frame-duration));
 }
 .mode-control[data-open="true"] .mode-menu {
   visibility: visible;
@@ -311,8 +315,10 @@ svg {
   place-items: center;
   color: #ffffffad;
   opacity: 0;
+  /* Outer rows fade with the retracting edge; rows on the return path clear before the toggle. */
   transition:
-    opacity 0s,
+    opacity var(--mode-hide-duration) linear
+      calc((var(--mode-steps) - var(--mode-reveal-step)) * var(--mode-step-duration)),
     background 0.2s,
     color 0.2s;
 }
@@ -1435,7 +1441,7 @@ body.desktop {
     -webkit-app-region: no-drag;
   }
   body:not(.desktop) .mode-control {
-    --mode-unroll-duration: calc(2 * var(--mode-step-duration));
+    --mode-steps: 2;
   }
   body:not(.desktop) .mode-frame {
     left: auto;
@@ -1462,7 +1468,10 @@ body.desktop {
     opacity: 0;
     transition: opacity 0s var(--mode-icons-delay, var(--mode-frame-duration));
   }
-  body:not(.desktop) .mode-option[aria-checked="true"] > .icon-slot {
+  body:not(.desktop)
+    .mode-control[data-open="true"]
+    .mode-option[aria-checked="true"]
+    > .icon-slot {
     opacity: 1;
   }
   body:not(.desktop) .mode-control[data-dragging="true"] .mode-frame {

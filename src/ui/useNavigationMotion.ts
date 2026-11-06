@@ -10,7 +10,7 @@ interface MotionState {
   settled: number;
 }
 
-/** The frame fades first; the same selected button then travels between its two positions. */
+/** The selected button follows the frame edge, retracing the opening path when it closes. */
 export function useNavigationMotion(
   control: RefObject<HTMLDivElement | null>,
   open: boolean,
@@ -24,6 +24,7 @@ export function useNavigationMotion(
     const node = control.current;
     const toggle = node?.querySelector<HTMLElement>("#mode-toggle");
     const menu = node?.querySelector<HTMLElement>("#mode-menu");
+    const frame = node?.querySelector<HTMLElement>(".mode-frame");
     const row = node?.querySelector<HTMLElement>('.mode-option[aria-checked="true"]:not([hidden])');
     if (!node || !toggle || !menu) return;
     const bounds = node.getBoundingClientRect();
@@ -65,13 +66,23 @@ export function useNavigationMotion(
       const from = new DOMMatrixReadOnly(origin);
       const to = new DOMMatrixReadOnly(destination);
       const distance = Math.hypot(to.e - from.e, to.f - from.f);
-      if (distance > 0)
+      if (distance > 0) {
+        const frameBounds = frame?.getBoundingClientRect();
+        const frameSize = frameBounds ? (mobile ? frameBounds.width : frameBounds.height) : 0;
+        const size = parseFloat(timing.getPropertyValue("--mode-size")) || 44;
+        const padding = parseFloat(timing.getPropertyValue("--mode-padding")) || 4;
+        // Wait for the shrinking edge to reach the selected row, then return at its speed.
+        // Measuring the live frame also preserves position when a transition is reversed.
+        const delay = open
+          ? frameDuration
+          : Math.max(0, (frameSize - size - 2 * padding - distance) / step) * stepDuration;
         animation = toggle.animate([{ transform: origin }, { transform: destination }], {
-          delay: before.open !== open ? frameDuration : 0,
+          delay: before.open !== open ? delay : 0,
           duration: (distance / step) * stepDuration,
           easing: "linear",
           fill: "both",
         });
+      }
     }
     const reduce = () => {
       if (reducedMotion.matches) animation?.cancel();
