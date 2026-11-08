@@ -1,4 +1,4 @@
-import { Authentication } from "../auth.js";
+import { Authentication, type AuthenticationOptions } from "../auth.js";
 import { FavoriteSync } from "../favorites.js";
 import { readLibrary, writeLibrary } from "../storage.js";
 import type { AudioElementLike } from "../audio.js";
@@ -27,6 +27,7 @@ export interface ApplicationOptions {
   storage: StorageLike;
   preferences?: Partial<Library>;
   mobile?: boolean;
+  openQqLogin?: NonNullable<AuthenticationOptions["qqLogin"]>["open"];
   now?: () => number;
 }
 
@@ -93,6 +94,7 @@ export class Application implements MusicApplication {
       },
       library: { liked: [], busyIds: [] },
       requests: {
+        auth: false,
         source: false,
         search: false,
         trackSearch: false,
@@ -141,6 +143,10 @@ export class Application implements MusicApplication {
     });
     this.authentication = new Authentication({
       provider: options.provider,
+      qqLogin: options.openQqLogin && {
+        create: () => options.provider.createQqLogin(),
+        open: options.openQqLogin,
+      },
       onState: (auth) => {
         if (!this.running) return;
         this.store.state.auth = auth;
@@ -153,10 +159,8 @@ export class Application implements MusicApplication {
       onAuthenticated: (user) => this.authenticated(user),
     });
     options.provider.onAuthenticationRequired = () => {
-      if (!this.running) return;
-      this.playback.pause();
-      this.favorites.disconnect();
-      void this.authentication.start();
+      if (this.running && this.store.state.auth.state === "ready")
+        void this.requireAuthentication(false);
     };
   }
   readonly getSnapshot = (): AppSnapshot => this.store.getSnapshot();
@@ -186,6 +190,7 @@ export class Application implements MusicApplication {
     // In-flight account requests must not publish after suspension or into the next start.
     this.favorites.disconnect();
     this.store.state.library.busyIds = [];
+    this.store.state.requests.auth = false;
     this.refreshInFlight = null;
     this.store.publish();
   }
@@ -260,8 +265,29 @@ export class Application implements MusicApplication {
       await this.start();
       return;
     }
-    if (this.store.state.auth.state === "unavailable") await this.authentication.start();
+    const { state } = this.store.state.auth;
+    if (state === "checking" || state === "authorizing" || state === "loadingQr") return;
+    if (state === "unavailable") await this.authentication.start();
     else await this.authentication.login();
+  }
+  async verifyAuthentication(): Promise<void> {
+    const { auth, requests } = this.store.state;
+    if (requests.auth || auth.state === "checking" || auth.state === "authorizing") return;
+    if (auth.state !== "ready") {
+      await this.retryAuthentication();
+      return;
+    }
+    requests.auth = true;
+    this.store.state.announcement = "正在验证 QQ 音乐登录…";
+    this.store.publish();
+    await this.refreshFavorites();
+  }
+  private async requireAuthentication(confirmedExpired: boolean): Promise<void> {
+    this.playback.pause();
+    this.favorites.disconnect();
+    this.store.state.library.busyIds = [];
+    if (!confirmedExpired) await this.authentication.start();
+    else await this.authentication.requireLogin();
   }
   async refreshFavorites(): Promise<void> {
     if (!this.running || this.store.state.auth.state !== "ready") return;
@@ -270,24 +296,37 @@ export class Application implements MusicApplication {
     const work = async () => {
       try {
         const status = await this.options.provider.getAuthStatus();
-        if (generation !== this.generation || !this.running) return;
+        if (generation !== this.generation || this.store.state.auth.state !== "ready") return;
         if (!status.authenticated) {
-          this.options.provider.onAuthenticationRequired?.();
+          await this.requireAuthentication(true);
           return;
         }
-        if (status.user?.uin !== this.activeUser?.uin) {
-          await this.authentication.start();
-          return;
+        if (status.user?.uin !== this.activeUser?.uin) await this.authentication.start(status);
+        else await this.favorites.sync();
+        if (generation === this.generation && this.store.state.auth.state === "ready") {
+          this.savePreferences();
+          if (this.store.state.requests.auth) this.notice("QQ 音乐登录有效");
         }
-        await this.favorites.sync();
-        if (generation === this.generation && this.running) this.savePreferences();
       } catch (error) {
-        if (generation === this.generation && this.running && errorCode(error) !== "AUTH_REQUIRED")
-          this.notice(`收藏同步失败：${errorMessage(error)}`, () => this.refreshFavorites());
+        if (
+          generation === this.generation &&
+          this.store.state.auth.state === "ready" &&
+          errorCode(error) !== "AUTH_REQUIRED"
+        ) {
+          if (this.store.state.requests.auth)
+            this.notice(`无法完成登录验证：${errorMessage(error)}`, () =>
+              this.verifyAuthentication(),
+            );
+          else this.notice(`收藏同步失败：${errorMessage(error)}`, () => this.refreshFavorites());
+        }
       } finally {
         if (generation === this.generation) {
           this.lastRefresh = this.now();
           this.refreshInFlight = null;
+          if (this.store.state.requests.auth) {
+            this.store.state.requests.auth = false;
+            this.store.publish();
+          }
         }
       }
     };
@@ -335,9 +374,8 @@ export class Application implements MusicApplication {
   returnToPlayer(): void {
     this.navigation.returnToPlayer();
   }
-  resumeMobilePage(): void {
-    this.navigation.resumeMobilePage();
-    if (this.store.state.navigation.view === "lyrics") void this.catalog.loadLyrics();
+  toggleMobileHome(): void {
+    this.navigation.toggleMobileHome();
   }
   showSearch(): void {
     this.catalog.showSearch();

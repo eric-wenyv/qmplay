@@ -1,4 +1,4 @@
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import type { MusicApplication } from "../contracts.js";
 import { usePlatform } from "../platform/usePlatform.js";
 import { Navigation } from "./Navigation.js";
@@ -10,18 +10,35 @@ import { AlbumTracksView } from "./AlbumTracksView.js";
 import { LyricsView } from "./LyricsView.js";
 import { QueuePanel } from "./QueuePanel.js";
 import { useKeyboard } from "./useKeyboard.js";
-import { useSwipe } from "./useSwipe.js";
+
+interface TrackPreview {
+  index: number;
+  id: string;
+  playingIndex: number;
+  playingId: string;
+}
 
 /** React renders snapshots; application controllers own all music workflows. */
 export function App({ app }: { app: MusicApplication }) {
   const snapshot = useSyncExternalStore(app.subscribe, app.getSnapshot, app.getSnapshot);
   usePlatform(app, snapshot);
   useKeyboard(app, snapshot);
-  const swipe = useSwipe(app);
   const { navigation, playback, catalog, library, requests } = snapshot;
   const desktopQueue = !navigation.mobile && navigation.queueOpen;
   const modalMenu = navigation.mobile && navigation.menuOpen;
   const controlsInert = modalMenu || desktopQueue || snapshot.auth.state !== "ready";
+  const [preview, setPreview] = useState<TrackPreview | null>(null);
+  const activePreview =
+    preview &&
+    navigation.mobile &&
+    navigation.view === "player" &&
+    snapshot.auth.state === "ready" &&
+    playback.index === preview.playingIndex &&
+    playback.current?.id === preview.playingId &&
+    playback.queue[preview.index]?.id === preview.id
+      ? preview.index
+      : null;
+  if (preview && activePreview === null) setPreview(null);
   // Keep feature trees mounted while reusing their elements until consumed data changes.
   // A media timeupdate therefore never walks an unchanged catalogue or library.
   const navigationView = useMemo(
@@ -34,19 +51,44 @@ export function App({ app }: { app: MusicApplication }) {
       navigation.menuOpen,
       navigation.queueOpen,
       snapshot.auth.state,
+      requests.auth,
     ],
   );
   const authView = useMemo(() => <AuthView app={app} auth={snapshot.auth} />, [app, snapshot.auth]);
   const playerView = useMemo(
-    () => <PlayerView app={app} snapshot={snapshot} />,
+    () => (
+      <PlayerView
+        app={app}
+        snapshot={snapshot}
+        inert={controlsInert}
+        selectedIndex={activePreview ?? playback.index}
+        onPreview={(index) => {
+          const track = playback.queue[index];
+          setPreview(
+            index !== playback.index && track && playback.current
+              ? {
+                  index,
+                  id: track.id,
+                  playingIndex: playback.index,
+                  playingId: playback.current.id,
+                }
+              : null,
+          );
+        }}
+      />
+    ),
     [
       app,
       playback.current,
+      navigation.mobile ? playback.queue : null,
       playback.index,
+      activePreview,
       playback.source?.type,
       library.liked,
       library.busyIds,
+      navigation.mobile,
       navigation.view,
+      controlsInert,
       requests.source,
     ],
   );
@@ -169,7 +211,6 @@ export function App({ app }: { app: MusicApplication }) {
         aria-label="正在播放"
         aria-busy={snapshot.requests.source}
         inert={controlsInert}
-        {...swipe}
       >
         {playerView}
         {searchView}
@@ -180,7 +221,12 @@ export function App({ app }: { app: MusicApplication }) {
         {lyricsView}
         {navigation.mobile && queue}
       </section>
-      <PlaybackControls app={app} snapshot={snapshot} inert={controlsInert} />
+      <PlaybackControls
+        app={app}
+        snapshot={snapshot}
+        inert={controlsInert}
+        previewIndex={activePreview}
+      />
       <div
         id="notice"
         className="notice"

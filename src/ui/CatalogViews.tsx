@@ -36,9 +36,7 @@ export function SearchView({ app, snapshot }: { app: MusicApplication; snapshot:
   const previousView = useRef(snapshot.navigation.view);
   const active =
     snapshot.navigation.view === "search" ||
-    (snapshot.navigation.mobile &&
-      snapshot.navigation.view === "player" &&
-      snapshot.navigation.mobilePage === "search");
+    (snapshot.navigation.mobile && snapshot.navigation.mobilePage === "search");
   useEffect(() => {
     if (
       snapshot.navigation.view === "search" &&

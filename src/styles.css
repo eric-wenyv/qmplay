@@ -168,6 +168,7 @@ svg {
   --mode-frame-duration: 80ms;
   --mode-step-duration: 80ms;
   --mode-steps: 3;
+  --mode-expanded-size: calc(4 * var(--mode-size) + 5 * var(--mode-padding));
   --mode-unroll-duration: calc(var(--mode-steps) * var(--mode-step-duration));
   --mode-icons-delay: calc(
     var(--mode-frame-duration) + var(--mode-selected-step, 0) * var(--mode-step-duration)
@@ -201,7 +202,7 @@ svg {
     height var(--mode-unroll-duration) linear;
 }
 .mode-control[data-open="true"] .mode-frame {
-  height: calc(4 * var(--mode-size) + 5 * var(--mode-padding));
+  height: var(--mode-expanded-size);
   opacity: 1;
   transition:
     opacity var(--mode-frame-duration) ease,
@@ -230,12 +231,6 @@ svg {
 }
 .mode-control[data-open="true"] .mode-toggle {
   pointer-events: none;
-}
-.mode-control[data-open="true"][data-selection="false"] .mode-toggle {
-  opacity: 0;
-}
-.mode-control[data-open="false"][data-selection="false"] .mode-toggle {
-  transition-delay: var(--mode-unroll-duration), 0s, 0s;
 }
 .icon-button {
   position: relative;
@@ -283,6 +278,9 @@ svg {
 .window-controls #close-window:hover {
   background: #ffffff20;
   color: #ffffff;
+}
+#verify-login:disabled {
+  opacity: 0.5;
 }
 .mode-menu {
   position: absolute;
@@ -862,6 +860,25 @@ h1 {
   color: #ffffff;
   padding: 8px;
 }
+.auth-login-button {
+  --login-blue: #0866d7;
+  min-width: 124px;
+  min-height: 44px;
+  padding: 8px 24px;
+  border: 1px solid var(--login-blue);
+  border-radius: 10px;
+  background: var(--login-blue);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 600;
+}
+.auth-login-button:active,
+.auth-login-button[aria-busy="true"] {
+  border-color: #ffffff;
+  background: #ffffff;
+  color: var(--login-blue);
+  opacity: 1;
+}
 .text-button .icon-slot {
   width: 15px;
   height: 15px;
@@ -1414,11 +1431,20 @@ body.desktop {
   color: var(--muted);
 }
 
+/* Rotation and stacking follow the same interpolated position. */
+@property --cover-position {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
 /* The mobile controls share the artwork palette and the desktop transport actions. */
 @media (max-width: 560px), (pointer: coarse) and (max-width: 1024px) {
   body:not(.desktop) {
     --wheel-size: min(80vw, max(150px, calc(100dvh - 190px)));
     --controls-height: calc(var(--wheel-size) + 22px);
+    --deck-height: calc(var(--controls-height) + clamp(0px, 10dvh - 52px, 24px));
+    --footer-bottom-inset: calc(12px + env(safe-area-inset-bottom));
     padding: 0;
     overscroll-behavior: none;
   }
@@ -1434,27 +1460,32 @@ body.desktop {
   }
   body:not(.desktop) .topbar {
     position: absolute;
-    top: calc(100% - var(--controls-height) - env(safe-area-inset-bottom) - 12px);
-    right: max(20px, env(safe-area-inset-right));
+    top: calc(100% - var(--deck-height) - var(--footer-bottom-inset) + 6px);
+    inset-inline: max(20px, env(safe-area-inset-left), env(safe-area-inset-right));
     padding: 0;
     height: var(--mode-size);
+    pointer-events: none;
     -webkit-app-region: no-drag;
   }
+  body:not(.desktop) #verify-login,
   body:not(.desktop) .mode-control {
-    --mode-steps: 2;
+    pointer-events: auto;
+  }
+  body:not(.desktop) .is-menu-open #verify-login {
+    visibility: hidden;
   }
   body:not(.desktop) .mode-frame {
     left: auto;
     right: calc(-1 * var(--mode-padding));
   }
   body:not(.desktop) .mode-control[data-open="true"] .mode-frame {
-    width: calc(3 * var(--mode-size) + 4 * var(--mode-padding));
+    width: var(--mode-expanded-size);
     height: calc(var(--mode-size) + 2 * var(--mode-padding));
   }
   body:not(.desktop) .mode-menu {
     left: auto;
     right: -1px;
-    width: calc(3 * var(--mode-size) + 4 * var(--mode-padding));
+    width: var(--mode-expanded-size);
     flex-direction: row;
   }
   body:not(.desktop) .mode-toggle {
@@ -1475,7 +1506,7 @@ body.desktop {
     opacity: 1;
   }
   body:not(.desktop) .mode-control[data-dragging="true"] .mode-frame {
-    width: calc(3 * var(--mode-size) + 4 * var(--mode-padding));
+    width: var(--mode-expanded-size);
     transition: none;
   }
   body:not(.desktop) .mode-control[data-dragging="true"] .mode-toggle {
@@ -1492,21 +1523,89 @@ body.desktop {
   }
   body:not(.desktop) .main-stage {
     padding: 8px 0 0;
-    touch-action: pan-y pinch-zoom;
   }
   body:not(.desktop) .listening-view {
     display: flex;
     flex-direction: column;
     height: 100%;
-    width: 82%;
-    max-width: min(380px, calc(100dvh - var(--controls-height) - 82px));
-  }
-  body:not(.desktop) .listening-view > .album-art {
     width: 100%;
-    flex-shrink: 0;
-    margin-block: auto;
+    max-width: none;
+  }
+  .cover-flow {
+    --cover-size: min(81cqw, max(0px, calc(100cqh - 28px)), 440px);
+    --cover-step: min(45.5cqw, calc(var(--cover-size) * 0.54));
+    --cover-room: min(11cqw, calc(var(--cover-size) * 0.135));
+    --cover-transition: 280ms cubic-bezier(0.2, 0.7, 0.25, 1);
+    position: relative;
+    flex: 1;
+    align-self: center;
+    width: min(100%, calc(100dvh - var(--controls-height) + 100px), 650px);
+    min-height: 0;
+    container-type: size;
+    isolation: isolate;
+    overflow: clip;
+    touch-action: pan-y pinch-zoom;
+    user-select: none;
+  }
+  .cover-flow-card,
+  .cover-flow-action {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: var(--cover-size);
+    aspect-ratio: 1;
+  }
+  .cover-flow-card {
+    --cover-position: calc(var(--cover-offset) + var(--cover-drag, 0));
+    --cover-distance: max(var(--cover-position), calc(-1 * var(--cover-position)));
+    --cover-turn: min(var(--cover-distance), 1);
+    /* Pull the covers apart and slightly back while they exchange depth. */
+    --cover-spread: calc(4 * var(--cover-turn) * (1 - var(--cover-turn)));
+    z-index: calc(1000 - var(--cover-distance) * 400);
+    pointer-events: none;
+    opacity: clamp(0, calc(2 - var(--cover-distance)), 1);
+    transform: translate(
+      calc(
+        -50% + var(--cover-position) * (var(--cover-step) + var(--cover-room) * var(--cover-spread))
+      ),
+      calc(-50% - 11px)
+    );
+    transition: --cover-position var(--cover-transition);
+  }
+  .cover-flow-card .album-art {
+    filter: brightness(max(0.68, calc(1 - var(--cover-distance) * 0.15)));
+    transform: perspective(max(650px, calc(var(--cover-size) * 3.4)))
+      rotateY(clamp(-72deg, calc(-72deg * var(--cover-position)), 72deg))
+      scale(max(0.79, calc(1 - var(--cover-distance) * 0.12 - var(--cover-spread) * 0.1)));
+  }
+  .cover-flow-title {
+    position: absolute;
+    z-index: 1001;
+    top: calc(50% + var(--cover-size) / 2 - 5px);
+    left: 50%;
+    width: var(--cover-size);
+    margin: 0;
+    transform: translateX(-50%);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.25;
+  }
+  .cover-flow[data-dragging] .cover-flow-card {
+    transition: none;
+  }
+  .cover-flow-action {
+    z-index: 1001;
+    border-radius: 7px;
+    transform: translate(-50%, calc(-50% - 11px));
   }
   body:not(.desktop) .track-meta {
+    width: 82%;
+    max-width: min(380px, calc(100dvh - var(--controls-height) - 82px));
+    margin-inline: auto;
     flex-shrink: 0;
     min-height: 34px;
     margin-top: 4px;
@@ -1541,7 +1640,7 @@ body.desktop {
     margin-right: 0;
   }
   body:not(.desktop) .player-footer {
-    padding: 0 0 calc(12px + env(safe-area-inset-bottom));
+    padding: 0 0 var(--footer-bottom-inset);
   }
   body:not(.desktop) .timeline {
     width: 82%;
@@ -1556,7 +1655,7 @@ body.desktop {
   body:not(.desktop) .control-deck {
     display: flex;
     position: relative;
-    height: var(--controls-height);
+    height: var(--deck-height);
     align-items: flex-end;
     justify-content: center;
     padding-bottom: 6px;
@@ -1597,7 +1696,7 @@ body.desktop {
     background: #ffffff16;
     transform: scale(0.93);
   }
-  body:not(.desktop) #queue-toggle {
+  body:not(.desktop) #home-toggle {
     grid-area: 1 / 2;
   }
   body:not(.desktop) #previous-track {
@@ -1632,41 +1731,28 @@ body.desktop {
     max-width: none;
     padding: 0 8% 8px;
   }
+  .queue-panel.search-view {
+    position: static;
+    z-index: auto;
+    border: 0;
+    background: none;
+    box-shadow: none;
+  }
+  .queue-panel.search-view .queue-header,
+  .queue-panel.search-view .queue-message {
+    padding: 0;
+  }
+  .queue-panel.search-view .queue-list {
+    min-width: 0;
+    min-height: 0;
+    margin-top: 12px;
+    padding: 0;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+  }
   body:not(.desktop) .artist-results,
   body:not(.desktop) .lyrics-lines {
     overscroll-behavior: contain;
-  }
-  body:not(.desktop) .queue-panel {
-    position: static;
-    align-self: stretch;
-    background: none;
-    border: 0;
-    box-shadow: none;
-    z-index: auto;
-    animation: appear 0.25s ease;
-  }
-  body:not(.desktop) .queue-header {
-    padding: 0;
-    flex-shrink: 0;
-  }
-  body:not(.desktop) .queue-header h2 {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 500;
-  }
-  body:not(.desktop) #close-queue {
-    display: none;
-  }
-  body:not(.desktop) .queue-list {
-    margin-top: 16px;
-    padding: 0;
-    overscroll-behavior: contain;
-  }
-  body:not(.desktop) .queue-row {
-    gap: 8px;
-  }
-  body:not(.desktop) .queue-message {
-    padding: 0;
   }
   body:not(.desktop) [data-tip]::after {
     display: none;
@@ -1676,9 +1762,6 @@ body.desktop {
     min-height: 0;
   }
 
-  body:not(.desktop) .mode-option[data-mode="home"] {
-    display: none;
-  }
   body:not(.desktop) .mode-backdrop {
     position: absolute;
     inset: 0;
@@ -1691,10 +1774,5 @@ body.desktop {
   }
   body:not(.desktop) .artist-row:hover {
     transform: none;
-  }
-  body:not(.desktop) .queue-list {
-    min-width: 0;
-    min-height: 0;
-    overflow-x: hidden;
   }
 }

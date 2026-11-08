@@ -40,7 +40,7 @@ export function usePlatform(app: MusicApplication, snapshot: AppSnapshot) {
     const back = () => {
       const state = app.getSnapshot().navigation;
       if (state.menuOpen) app.setMenu(false);
-      else if (state.queueOpen || state.view === "queue") app.closeQueue();
+      else if (state.queueOpen) app.closeQueue();
       else if (state.view !== "player") app.returnToPlayer();
       else window.qmplayAndroid?.minimize();
     };

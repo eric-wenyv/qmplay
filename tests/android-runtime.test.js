@@ -60,6 +60,16 @@ test(
       }
       assert(connected, "Android server must start independently of Electron");
       assert.equal((await request("/api/auth/status")).status, 403);
+      assert.equal(
+        (
+          await request("/api/auth/qq", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{}",
+          })
+        ).status,
+        403,
+      );
       assert.equal((await request("/bootstrap?token=wrong", { redirect: "manual" })).status, 403);
       const boot = await request("/bootstrap?token=" + token, { redirect: "manual" });
       assert.equal(boot.status, 302);

@@ -17,18 +17,18 @@ export class NavigationController {
   ) {}
   isPageActive(view: View): boolean {
     const nav = this.store.state.navigation;
-    return nav.view === view || (nav.mobile && nav.view === "player" && nav.mobilePage === view);
+    return nav.view === view || (nav.mobile && nav.mobilePage === view);
   }
   setView(view: View): void {
     const nav = this.store.state.navigation;
-    const previous = nav.mobile && nav.view === "player" ? nav.mobilePage : nav.view;
-    if (previous) this.leave(previous, view, nav.mobile && view === "player");
-    if (nav.mobile && view !== "player") {
+    const mode = pageModes[view];
+    const previous = nav.mobile ? nav.mobilePage : nav.view;
+    if (previous) this.leave(previous, view, nav.mobile && !mode);
+    if (nav.mobile && mode) {
       nav.mobilePage = view;
-      nav.mobileMode = pageModes[view] || nav.mobileMode;
+      nav.mobileMode = mode;
     }
     nav.view = view;
-    if (nav.mobile) nav.queueOpen = view === "queue";
     this.store.publish();
   }
   browse(view: View): void {
@@ -39,9 +39,11 @@ export class NavigationController {
   returnToPlayer(): void {
     this.browse("player");
   }
-  resumeMobilePage(): void {
-    const page = this.store.state.navigation.mobilePage;
-    if (page) this.setView(page);
+  toggleMobileHome(): void {
+    const nav = this.store.state.navigation;
+    if (!nav.mobile) return;
+    if (nav.view === "player") this.setView(nav.mobilePage ?? "liked");
+    else this.returnToPlayer();
   }
   setMenu(open: boolean): void {
     this.store.state.navigation.menuOpen = open;
@@ -50,32 +52,36 @@ export class NavigationController {
   setMobile(mobile: boolean): void {
     const nav = this.store.state.navigation;
     if (nav.mobile === mobile) return;
-    const wasOpen = nav.queueOpen;
     nav.menuOpen = false;
+    nav.queueOpen = false;
     nav.mobile = mobile;
-    if (mobile && nav.view !== "player") {
+    if (!mobile && nav.view === "queue") nav.view = "player";
+    const mode = pageModes[nav.view];
+    if (mobile && mode) {
       nav.mobilePage = nav.view;
-      nav.mobileMode = pageModes[nav.view] || nav.mobileMode;
+      nav.mobileMode = mode;
     }
-    if (wasOpen) nav.view = mobile ? "queue" : nav.view === "queue" ? "player" : nav.view;
     this.store.publish();
   }
   openQueue(): void {
     const nav = this.store.state.navigation;
-    if (nav.mobile && nav.view === "queue") {
-      this.closeQueue();
+    if (nav.mobile) {
+      this.browse("queue");
       return;
     }
     nav.menuOpen = false;
     nav.queueOpen = true;
-    if (nav.mobile) this.browse("queue");
-    else this.store.publish();
+    this.store.publish();
   }
   closeQueue(): void {
     const nav = this.store.state.navigation;
+    if (nav.view === "queue") {
+      this.returnToPlayer();
+      return;
+    }
+    if (!nav.queueOpen) return;
     nav.queueOpen = false;
-    if (nav.view === "queue") this.returnToPlayer();
-    else this.store.publish();
+    this.store.publish();
   }
 }
 

@@ -25,6 +25,19 @@ export const SESSION_COOKIE = "qq_music_session";
 export const SESSION_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
 export const newToken = () => randomBytes(32).toString("hex");
 
+export function musicKeyExpired({ musickeyCreateTime, keyExpiresIn }: MusicCredential) {
+  // QQ reports the key lifetime in seconds, independently of the local session cookie.
+  const created = Number(musickeyCreateTime);
+  const lifetime = Number(keyExpiresIn);
+  return (
+    Number.isSafeInteger(created) &&
+    created > 0 &&
+    Number.isSafeInteger(lifetime) &&
+    lifetime > 0 &&
+    (created + lifetime) * 1000 <= Date.now()
+  );
+}
+
 // Only opaque tokens leave the server. Account credentials are authenticated and encrypted at rest.
 export class SessionStore {
   private keyPromise?: Promise<Buffer>;

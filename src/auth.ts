@@ -1,4 +1,4 @@
-import type { AuthState, AuthStatus, LoginQr, LoginResult, User } from "./contracts.js";
+import type { AuthState, AuthStatus, LoginQr, LoginResult, QqLogin, User } from "./contracts.js";
 
 type Timer = ReturnType<typeof globalThis.setTimeout>;
 export interface AuthenticationOptions {
@@ -9,6 +9,10 @@ export interface AuthenticationOptions {
   };
   onState(state: AuthState): void;
   onAuthenticated(user: User): void | Promise<void>;
+  qqLogin?: {
+    create(): Promise<QqLogin>;
+    open(url: string): void;
+  };
   schedule?: (callback: () => void, delay: number) => Timer;
   cancel?: (id: Timer | undefined) => void;
 }
@@ -23,18 +27,21 @@ export class Authentication {
   readonly onAuthenticated: AuthenticationOptions["onAuthenticated"];
   readonly schedule: NonNullable<AuthenticationOptions["schedule"]>;
   readonly cancel: NonNullable<AuthenticationOptions["cancel"]>;
+  private qqLogin: AuthenticationOptions["qqLogin"];
   generation = 0;
   timer?: Timer;
   constructor({
     provider,
     onState,
     onAuthenticated,
+    qqLogin,
     schedule = (callback, delay) => globalThis.setTimeout(callback, delay),
     cancel = (id) => globalThis.clearTimeout(id),
   }: AuthenticationOptions) {
     this.provider = provider;
     this.onState = onState;
     this.onAuthenticated = onAuthenticated;
+    this.qqLogin = qqLogin;
     this.schedule = schedule;
     this.cancel = cancel;
   }
@@ -42,19 +49,26 @@ export class Authentication {
     this.generation++;
     this.cancel(this.timer);
   }
-  async start() {
+  async start(status?: AuthStatus) {
     this.stop();
     const generation = this.generation;
     this.onState({ state: "checking", message: "正在恢复登录…" });
     try {
-      const result = await this.provider.getAuthStatus();
+      const result = status ?? (await this.provider.getAuthStatus());
       if (generation !== this.generation) return;
       if (result.authenticated) await this.complete(result.user, generation);
-      else await this.login();
+      else await this.requireLogin();
     } catch (error) {
-      if (generation === this.generation)
-        this.onState({ state: "unavailable", message: message(error) });
+      if (generation !== this.generation) return;
+      if (code(error) === "AUTH_REQUIRED") await this.requireLogin();
+      else this.onState({ state: "unavailable", message: message(error) });
     }
+  }
+  async requireLogin() {
+    if (this.qqLogin) {
+      this.stop();
+      this.onState({ state: "needsLogin", method: "qq", message: "请通过手机 QQ 授权登录" });
+    } else await this.login();
   }
   async complete(user: User | undefined, generation: number) {
     if (!user || !/^\d+$/.test(user.uin)) throw new Error("登录账号数据不完整，请重试");
@@ -64,15 +78,37 @@ export class Authentication {
   async login() {
     this.stop();
     const generation = this.generation;
-    this.onState({ state: "loadingQr", message: "正在获取登录二维码…" });
+    const qqLogin = this.qqLogin;
+    const method = qqLogin ? { method: "qq" as const } : {};
+    const expired = qqLogin ? "QQ 登录已过期，请重试" : "二维码已过期，请刷新";
+    const cancelled = qqLogin ? "已取消 QQ 登录" : "已取消登录，请重新扫码";
+    this.onState(
+      qqLogin
+        ? { state: "authorizing", ...method, message: "正在打开 QQ 登录…" }
+        : { state: "loadingQr", message: "正在获取登录二维码…" },
+    );
     try {
-      const qr = await this.provider.createLoginQr();
+      const qr = await (qqLogin ? qqLogin.create() : this.provider.createLoginQr());
       if (generation !== this.generation) return;
-      this.onState({ state: "waiting", message: "请使用手机 QQ 扫码登录", image: qr.image });
+      if (qqLogin && "url" in qr) qqLogin.open(qr.url);
+      const image = "image" in qr ? qr.image : undefined;
+      const waiting = (scanned = false, retrying = false): AuthState => ({
+        state: qqLogin ? "authorizing" : scanned ? "scanned" : "waiting",
+        ...method,
+        image,
+        message: retrying
+          ? "网络波动，正在重新检查登录…"
+          : qqLogin
+            ? "请在手机 QQ 确认登录"
+            : scanned
+              ? "已扫码，请在手机上确认登录"
+              : "请使用手机 QQ 扫码登录",
+      });
+      this.onState(waiting());
       const poll = async () => {
         if (generation !== this.generation) return;
         if (Date.now() >= qr.expiresAt) {
-          this.onState({ state: "expired", message: "二维码已过期，请刷新" });
+          this.onState({ state: "expired", ...method, message: expired });
           return;
         }
         try {
@@ -85,36 +121,27 @@ export class Authentication {
           if (result.state === "expired" || result.state === "cancelled") {
             this.onState({
               state: result.state,
-              message:
-                result.state === "expired" ? "二维码已过期，请刷新" : "已取消登录，请重新扫码",
+              ...method,
+              message: result.state === "expired" ? expired : cancelled,
             });
             return;
           }
           if (result.state !== "waiting" && result.state !== "scanned")
-            throw new Error("登录状态异常，请刷新二维码");
-          this.onState({
-            state: result.state,
-            image: qr.image,
-            message:
-              result.state === "scanned" ? "已扫码，请在手机上确认登录" : "请使用手机 QQ 扫码登录",
-          });
+            throw new Error(qqLogin ? "登录状态异常，请重试" : "登录状态异常，请刷新二维码");
+          this.onState(waiting(result.state === "scanned"));
           this.timer = this.schedule(poll, 2000);
         } catch (error) {
           if (generation !== this.generation) return;
           if (["UPSTREAM_UNAVAILABLE", "API_UNAVAILABLE", "POLL_TOO_FAST"].includes(code(error))) {
-            this.onState({
-              state: "waiting",
-              image: qr.image,
-              message: "网络波动，正在重新检查登录…",
-            });
+            this.onState(waiting(false, true));
             this.timer = this.schedule(poll, 3000);
-          } else this.onState({ state: "loginError", message: message(error) });
+          } else this.onState({ state: "loginError", ...method, message: message(error) });
         }
       };
       this.timer = this.schedule(poll, 2000);
     } catch (error) {
       if (generation === this.generation)
-        this.onState({ state: "loginError", message: message(error) });
+        this.onState({ state: "loginError", ...method, message: message(error) });
     }
   }
 }

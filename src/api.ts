@@ -4,6 +4,7 @@ import type {
   AuthStatus,
   LoginQr,
   LoginResult,
+  QqLogin,
   LyricLine,
   Quality,
   RadioStation,
@@ -266,10 +267,10 @@ export class QQMusicProvider {
   async getAuthStatus(): Promise<AuthStatus> {
     try {
       const result = await this.request("/auth/status");
-      return {
-        authenticated: result.authenticated === true,
-        ...(result.user ? { user: this.user(result.user) } : {}),
-      };
+      if (typeof result.authenticated !== "boolean") throw new Error("登录状态数据不完整，请重试");
+      return result.authenticated
+        ? { authenticated: true, user: this.user(result.user) }
+        : { authenticated: false };
     } catch (error) {
       if (errorCode(error) === "AUTH_REQUIRED") return { authenticated: false };
       throw error;
@@ -301,6 +302,17 @@ export class QQMusicProvider {
       state: String(value.state || ""),
       ...(value.user ? { user: this.user(value.user) } : {}),
     };
+  }
+  async createQqLogin(): Promise<QqLogin> {
+    const { id, url, expiresAt } = await this.request("/auth/qq", {}, { method: "POST", body: {} });
+    if (
+      typeof url !== "string" ||
+      typeof id !== "string" ||
+      !/^[a-f0-9]{64}$/.test(id) ||
+      typeof expiresAt !== "number"
+    )
+      throw new Error("QQ 登录授权数据无效，请重试");
+    return { id, url, expiresAt };
   }
   logout(): Promise<JsonObject> {
     return this.request("/auth/logout", {}, { method: "POST", body: {} });
@@ -482,7 +494,7 @@ export class QQMusicProvider {
       const url = safeUrl(at(body, "playUrl", track.id, "url"));
       if (url) return url;
     }
-    throw new Error("这首歌暂无播放权限或链接，请切换歌曲；付费歌曲需要服务端配置有效账号");
+    throw new Error("当前账号暂无这首歌的播放权限，或 QQ 音乐暂未提供播放链接");
   }
   async getLyrics(id: string, options?: RequestOptions): Promise<LyricLine[]> {
     const body = await this.request("/getLyric", { songmid: id, isFormat: false }, options);

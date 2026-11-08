@@ -3,6 +3,7 @@ import { QQMusicProvider } from "./api.js";
 import { createApplication } from "./application/application.js";
 import { App } from "./ui/App.js";
 import type { Quality, StorageLike } from "./contracts.js";
+import { openQqLogin } from "./platform/qqLogin.js";
 import "./styles.css";
 
 const audio = new Audio();
@@ -31,7 +32,12 @@ try {
   };
 }
 
-const app = createApplication({ provider, audio, storage });
+const app = createApplication({
+  provider,
+  audio,
+  storage,
+  openQqLogin: window.qmplayAndroid ? openQqLogin : undefined,
+});
 const container = document.getElementById("root");
 if (!container) throw new Error("Missing application root");
 createRoot(container).render(<App app={app} />);

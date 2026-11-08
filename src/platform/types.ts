@@ -5,6 +5,7 @@ export interface DesktopBridge {
 export interface AndroidBridge {
   minimize(): void;
   playback(title: string, artist: string, playing: boolean): void;
+  openQqLogin(url: string): boolean;
 }
 
 declare global {

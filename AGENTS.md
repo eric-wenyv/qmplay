@@ -37,3 +37,4 @@ pnpm start          # 启动 Electron
 - 保留桌面沙箱、上下文隔离和本地 API 访问控制；兼容已有用户目录与协议，避免丢失登录及播放状态。
 - 行为变更补充相关 `tests/*.test.js` 并同步文档；依赖变更同步 `pnpm-lock.yaml`。跨端改动注意 Windows 路径/CRLF 和 Android Node.js Mobile 兼容性。
 - 修改源码而非 `dist/`、`release/`、`output/` 等生成文件；保留第三方许可证，签名密钥与认证数据不得提交或打包。
+- 修改后非重要或架构上的修改不要修改[ARCHITECTURE.md](ARCHITECTURE.md)；非重大功能修改，例如UI优化等不要修改[README.md](README.md)

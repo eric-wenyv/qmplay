@@ -12,8 +12,7 @@ export function RadioView({ app, snapshot }: { app: MusicApplication; snapshot: 
   const list = useRef<HTMLDivElement>(null);
   const { navigation, catalog, requests } = snapshot;
   const active =
-    navigation.view === "browse" ||
-    (navigation.mobile && navigation.view === "player" && navigation.mobilePage === "browse");
+    navigation.view === "browse" || (navigation.mobile && navigation.mobilePage === "browse");
   const stale = query !== catalog.trackQuery;
   const searching = !!query.trim();
 

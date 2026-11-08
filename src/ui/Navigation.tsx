@@ -1,11 +1,11 @@
 import { useRef, type CSSProperties } from "react";
-import type { AppSnapshot, MusicApplication, NavigationMode } from "../contracts.js";
+import type { AppSnapshot, MusicApplication, NavigationMode, View } from "../contracts.js";
 import { Icon } from "./Icon.js";
 import { useNavigationMotion } from "./useNavigationMotion.js";
 import { useNavigationDrag } from "./useNavigationDrag.js";
 
-const mobileModes = ["radio", "liked", "artist"] as const;
-const menuModes = ["home", "radio", "liked", "artist"] as const;
+const mobileModes = ["queue", "radio", "liked", "artist"] as const;
+const desktopModes = ["home", "radio", "liked", "artist"] as const;
 
 const labels: Record<NavigationMode, string> = {
   home: "主页",
@@ -32,21 +32,47 @@ const pageModes = {
   lyrics: "home",
 } as const;
 
+const pageLabels: Partial<Record<View, string>> = {
+  search: "搜索歌手",
+  albums: "歌手专辑",
+  albumTracks: "专辑歌曲",
+};
+
+export function describePage(view: View) {
+  const mode = pageModes[view];
+  return { label: pageLabels[view] ?? labels[mode], icon: icons[mode] };
+}
+
 export function Navigation({ app, snapshot }: { app: MusicApplication; snapshot: AppSnapshot }) {
   const { navigation, auth } = snapshot;
+  const verifying = snapshot.requests.auth || auth.state === "checking";
+  const loginButton = (
+    <button
+      id="verify-login"
+      className={navigation.mobile ? "mode-toggle" : "icon-button"}
+      type="button"
+      aria-label={verifying ? "正在验证登录" : "验证登录"}
+      aria-busy={verifying}
+      data-tip="验证登录"
+      disabled={verifying || auth.state === "authorizing" || auth.state === "loadingQr"}
+      inert={navigation.mobile && navigation.menuOpen}
+      onClick={() => void app.verifyAuthentication()}
+    >
+      <Icon name="verify" />
+    </button>
+  );
   const selected = navigation.mobile ? navigation.mobileMode : pageModes[navigation.view];
-  const selectedStep =
-    selected === "queue"
-      ? 0
-      : navigation.mobile
-        ? 3 - menuModes.indexOf(selected)
-        : menuModes.indexOf(selected);
+  const menuModes: readonly NavigationMode[] = navigation.mobile ? mobileModes : desktopModes;
+  const lastStep = menuModes.length - 1;
+  const selectedIndex = menuModes.indexOf(selected);
+  const selectedStep = navigation.mobile ? lastStep - selectedIndex : selectedIndex;
   const control = useRef<HTMLDivElement>(null);
   const choose = (mode: NavigationMode) => {
     if (mode === "home") app.returnToPlayer();
     else if (mode === "artist") app.showSearch();
     else if (mode === "radio") void app.showRadio();
     else if (mode === "liked") app.showLiked();
+    else if (mode === "queue") app.openQueue();
   };
   const { dragging, preview, settled, handlers } = useNavigationDrag({
     control,
@@ -56,18 +82,21 @@ export function Navigation({ app, snapshot }: { app: MusicApplication; snapshot:
     choose,
   });
   useNavigationMotion(control, navigation.menuOpen, selected, navigation.mobile, dragging, settled);
-  const slider = navigation.mobile && navigation.menuOpen && (selected !== "queue" || dragging);
+  const slider = navigation.mobile && navigation.menuOpen;
   const sliderIndex = Math.max(
     0,
     mobileModes.findIndex((mode) => mode === (preview || selected)),
   );
   return (
-    <header className="topbar" inert={!navigation.mobile && navigation.queueOpen}>
+    <header
+      className="topbar"
+      inert={auth.state === "ready" && !navigation.mobile && navigation.queueOpen}
+    >
+      {navigation.mobile && auth.state === "ready" && loginButton}
       <div
         ref={control}
         className="mode-control"
         data-open={navigation.menuOpen}
-        data-selection={selected !== "queue"}
         data-dragging={dragging}
         style={{ "--mode-selected-step": selectedStep } as CSSProperties}
         inert={auth.state !== "ready"}
@@ -80,7 +109,7 @@ export function Navigation({ app, snapshot }: { app: MusicApplication; snapshot:
           role={slider ? "slider" : undefined}
           aria-label={slider ? "滑动切换页面" : `切换页面：${labels[selected]}`}
           aria-valuemin={slider ? 0 : undefined}
-          aria-valuemax={slider ? 2 : undefined}
+          aria-valuemax={slider ? lastStep : undefined}
           aria-valuenow={slider ? sliderIndex : undefined}
           aria-valuetext={slider ? labels[preview || selected] : undefined}
           aria-orientation={slider ? "horizontal" : undefined}
@@ -98,8 +127,11 @@ export function Navigation({ app, snapshot }: { app: MusicApplication; snapshot:
               event.key === "Home"
                 ? 0
                 : event.key === "End"
-                  ? 2
-                  : Math.max(0, Math.min(2, sliderIndex + (event.key === "ArrowRight" ? 1 : -1)));
+                  ? lastStep
+                  : Math.max(
+                      0,
+                      Math.min(lastStep, sliderIndex + (event.key === "ArrowRight" ? 1 : -1)),
+                    );
             choose(mobileModes[index]!);
           }}
         >
@@ -141,7 +173,7 @@ export function Navigation({ app, snapshot }: { app: MusicApplication; snapshot:
             }}
           >
             {menuModes.map((mode, index) => {
-              const step = navigation.mobile ? 3 - index : index;
+              const step = navigation.mobile ? lastStep - index : index;
               const revealStep = step < selectedStep ? step + 1 : step;
               return (
                 <button
@@ -161,7 +193,6 @@ export function Navigation({ app, snapshot }: { app: MusicApplication; snapshot:
                   }
                   aria-label={labels[mode]}
                   data-tip={labels[mode]}
-                  hidden={navigation.mobile && mode === "home"}
                   onClick={() => choose(mode)}
                 >
                   <Icon name={icons[mode]} />
@@ -172,12 +203,14 @@ export function Navigation({ app, snapshot }: { app: MusicApplication; snapshot:
           </div>
         </div>
       </div>
-      <div className="window-controls" aria-label="窗口控制" hidden={!window.qmplayDesktop}>
+      <div className="window-controls" aria-label="窗口控制" hidden={navigation.mobile}>
+        {!navigation.mobile && loginButton}
         <button
           id="minimize-window"
           className="icon-button"
           type="button"
           aria-label="最小化"
+          hidden={!window.qmplayDesktop}
           onClick={() => window.qmplayDesktop?.minimize()}
         >
           <Icon name="minus" />
@@ -187,6 +220,7 @@ export function Navigation({ app, snapshot }: { app: MusicApplication; snapshot:
           className="icon-button"
           type="button"
           aria-label="关闭窗口"
+          hidden={!window.qmplayDesktop}
           onClick={() => window.qmplayDesktop?.close()}
         >
           <Icon name="close" />

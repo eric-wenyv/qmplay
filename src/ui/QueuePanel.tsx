@@ -12,8 +12,8 @@ export function QueuePanel({ app, snapshot }: { app: MusicApplication; snapshot:
   const [scrollTop, setScrollTop] = useState(0);
   const pendingFocus = useRef<{ index: number; remove: boolean } | null>(null);
   const queue = snapshot.playback.queue;
-  const mobile = snapshot.navigation.mobile;
-  const visible = mobile ? snapshot.navigation.view === "queue" : snapshot.navigation.queueOpen;
+  const { mobile, view, queueOpen } = snapshot.navigation;
+  const visible = mobile ? view === "queue" : queueOpen;
   useLayoutEffect(() => {
     if (list.current) list.current.scrollTop = 0;
     setScrollTop(0);
@@ -55,7 +55,7 @@ export function QueuePanel({ app, snapshot }: { app: MusicApplication; snapshot:
   return (
     <aside
       id="queue-panel"
-      className={`queue-panel${mobile ? " search-view" : ""}`}
+      className={mobile ? "queue-panel search-view" : "queue-panel"}
       role={mobile ? "region" : "dialog"}
       aria-modal={mobile ? undefined : true}
       aria-label="播放队列"
@@ -71,6 +71,7 @@ export function QueuePanel({ app, snapshot }: { app: MusicApplication; snapshot:
           className="icon-button small"
           type="button"
           aria-label="关闭播放队列"
+          hidden={mobile}
           onClick={() => app.closeQueue()}
         >
           <Icon name="close" />

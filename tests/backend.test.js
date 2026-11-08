@@ -586,6 +586,104 @@ test("QR confirmation preserves the original callback and stage cookies, stores 
   });
 });
 
+test("mobile QQ authorization binds a single-use challenge to its owner and issues an opaque session", async () => {
+  let exchangeStarted, releaseExchange;
+  const started = new Promise((resolve) => {
+    exchangeStarted = resolve;
+  });
+  const release = new Promise((resolve) => {
+    releaseExchange = resolve;
+  });
+  let exchanges = 0;
+  const qrUrl = `http://txz.qq.com/p?k=${"a".repeat(32)}&f=716027609`;
+  let qr = qrUrl;
+  axios.defaults.adapter = async (config) => {
+    if (config.url.includes("/ptqrshow")) {
+      assert.equal(config.params.type, 1);
+      assert.equal(config.params.u1, "https://graph.qq.com/oauth2.0/login_jump");
+      return upstream(config, `ptui_qrcode_CB(${JSON.stringify({ ec: 0, qrcode: qr })});`, {
+        "set-cookie": ["qrsig=private-mobile-qr; HttpOnly"],
+      });
+    }
+    if (config.url.includes("/ptqrlogin")) {
+      assert.equal(config.headers.Cookie, "qrsig=private-mobile-qr");
+      const callback =
+        "https://ssl.ptlogin2.graph.qq.com/check_sig?uin=22222&ptsigx=private-signature";
+      return upstream(config, `ptuiCB('0','0','${callback}','0','成功','name');`);
+    }
+    if (config.url.includes("/check_sig"))
+      return upstream(config, "", { "set-cookie": ["p_skey=private-graph; Domain=graph.qq.com"] });
+    if (config.url.includes("/oauth2.0/authorize"))
+      return upstream(config, "", {
+        location: "https://y.qq.com/portal/wx_redirect.html?code=private-auth-code",
+      });
+    const { req_0: request } = JSON.parse(config.data);
+    if (request.method === "QQLogin") {
+      assert.equal(request.module, "QQConnectLogin.LoginServer");
+      assert.deepEqual(request.param, { code: "private-auth-code" });
+      exchanges++;
+      exchangeStarted();
+      await release;
+      return upstream(config, {
+        code: 0,
+        req_0: { code: 0, data: { musicid: 22222, musickey: "private-music-key" } },
+      });
+    }
+    assert.equal(request.param.dirid, 201);
+    return upstream(config, {
+      code: 0,
+      req_0: { code: 0, data: { songlist: [], total_song_num: 0 } },
+    });
+  };
+  await localApi(async (request) => {
+    qr = qrUrl.replace("txz.qq.com", "txz.qq.com.untrusted.test");
+    const unsafe = await request("/auth/qq", json({}));
+    assert.equal(unsafe.status, 502);
+    assert.doesNotMatch(await unsafe.text(), /untrusted|private-mobile-qr/);
+    qr = qrUrl;
+    const opening = await request("/auth/qq", json({}));
+    assert.equal(opening.status, 200);
+    const header = opening.headers.get("set-cookie");
+    assert.match(header, /; httponly/i);
+    assert.match(header, /; samesite=strict/i);
+    const owner = header.split(";")[0];
+    const { id, url, expiresAt, image } = (await opening.json()).data;
+    assert.equal(url, qrUrl.replace("http:", "https:"));
+    assert.equal(image, undefined);
+    assert(expiresAt > Date.now());
+    const endpoint = "/auth/qr/check";
+    const callback = { id };
+    const foreign = await request(endpoint, json(callback));
+    assert.deepEqual(await foreign.json(), { data: { state: "expired" } });
+    assert.equal(exchanges, 0);
+    const completion = request(endpoint, json(callback, owner));
+    try {
+      await started;
+      assert.equal((await request(endpoint, json(callback, owner))).status, 429);
+    } finally {
+      releaseExchange();
+    }
+    const confirmed = await completion;
+    assert.equal(confirmed.status, 200);
+    assert.deepEqual(await confirmed.json(), {
+      data: { state: "authenticated", user: { uin: "22222" } },
+    });
+    const cookie = confirmed.headers
+      .getSetCookie()
+      .find((line) => line.startsWith("qq_music_session="));
+    assert.match(cookie, /^qq_music_session=[a-f0-9]{64};/);
+    assert.match(cookie, /; httponly/i);
+    assert.match(cookie, /; samesite=strict/i);
+    const restored = await request("/auth/status", { headers: { Cookie: cookie.split(";")[0] } });
+    assert.deepEqual(await restored.json(), {
+      data: { authenticated: true, user: { uin: "22222" } },
+    });
+    const replay = await request(endpoint, json(callback, owner));
+    assert.deepEqual(await replay.json(), { data: { state: "expired" } });
+    assert.equal(exchanges, 1);
+  });
+});
+
 test("account refresh and playback retain isolated credentials, while a network outage preserves the session", async () => {
   const firstToken = session.newToken(),
     secondToken = session.newToken();
@@ -676,6 +774,99 @@ test("account refresh and playback retain isolated credentials, while a network 
   });
   await session.sessions.delete(firstToken);
   await session.sessions.delete(secondToken);
+});
+
+test("expired QQ music keys are renewed before playback or sent back to login", async () => {
+  const expired = {
+    musicid: 12345,
+    musickey: "expired-key",
+    musickeyCreateTime: Math.floor(Date.now() / 1000) - 259201,
+    keyExpiresIn: 259200,
+  };
+  const mid = "0039MnYb0qxYhV";
+  const playbackPath = `/getMusicPlay?songmid=${mid}&mediaId=003Qui1q2u1Zho&quality=128`;
+  const tokens = await Promise.all(
+    [
+      expired,
+      expired,
+      { ...expired, refresh_token: "refresh-token", refresh_key: "refresh-key" },
+    ].map(async (credential) => {
+      const token = session.newToken();
+      await session.sessions.save(token, { credential, expiresAt: Date.now() + 60000 });
+      return token;
+    }),
+  );
+  let refreshes = 0;
+  let outage = true;
+  let playable = true;
+  axios.defaults.adapter = async (config) => {
+    const { comm, req_0: request } = JSON.parse(config.data);
+    if (request.method === "Login") {
+      refreshes++;
+      if (outage) throw Object.assign(new Error("temporary outage"), { code: "ETIMEDOUT" });
+      return upstream(config, {
+        code: 0,
+        req_0: {
+          code: 0,
+          data: {
+            ...expired,
+            musickey: "renewed-key",
+            musickeyCreateTime: Math.floor(Date.now() / 1000),
+          },
+        },
+      });
+    }
+    assert.equal(comm.authst, "renewed-key", "Do not send the expired key to account APIs");
+    if (request.method === "CgiGetVkey") {
+      assert.deepEqual(request.param.songmid, [mid]);
+      assert.deepEqual(request.param.filename, ["M500003Qui1q2u1Zho.mp3"]);
+      return upstream(config, {
+        code: 0,
+        req_0: {
+          code: 0,
+          data: {
+            sip: ["https://audio.qq.com/"],
+            midurlinfo: [
+              { songmid: mid, result: playable ? 0 : 104003, purl: playable ? "sunny.mp3" : "" },
+            ],
+          },
+        },
+      });
+    }
+    return upstream(config, { code: 0, req_0: { code: 0, data: { songlist: [] } } });
+  };
+  await localApi(async (request) => {
+    const get = (url, token) => request(url, { headers: { Cookie: `qq_music_session=${token}` } });
+    for (const [url, token] of [
+      ["/auth/status", tokens[0]],
+      [playbackPath, tokens[1]],
+    ]) {
+      const response = await get(url, token);
+      assert.equal(response.status, 401);
+      assert.equal((await response.json()).error.code, "AUTH_EXPIRED");
+      assert.match(response.headers.get("set-cookie"), /^qq_music_session=;/);
+      assert.equal(await session.sessions.get(token), null);
+    }
+    assert.equal(refreshes, 0);
+    const renewable = tokens[2];
+    assert.equal((await get(playbackPath, renewable)).status, 502);
+    assert(await session.sessions.get(renewable));
+    outage = false;
+    const [status, playback] = await Promise.all([
+      get("/auth/status", renewable),
+      get(playbackPath, renewable),
+    ]);
+    assert.equal((await status.json()).data.authenticated, true);
+    assert.equal((await playback.json()).data.playUrl[mid].url, "https://audio.qq.com/sunny.mp3");
+    assert.equal(refreshes, 2, "one failed refresh and one successful shared refresh");
+    playable = false;
+    assert.equal((await (await get(playbackPath, renewable)).json()).data.playUrl[mid].url, "");
+    assert(
+      await session.sessions.get(renewable),
+      "A track restriction must not revoke the session",
+    );
+  });
+  await session.sessions.delete(tokens[2]);
 });
 
 test("standalone embedded process announces its ephemeral loopback address and shuts down with its owner", async () => {

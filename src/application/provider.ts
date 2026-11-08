@@ -7,6 +7,7 @@ export type ApplicationProvider = Pick<
   | "getAuthStatus"
   | "createLoginQr"
   | "checkLoginQr"
+  | "createQqLogin"
   | "getFavorites"
   | "setFavorite"
   | "searchArtists"

@@ -17,6 +17,7 @@ import {
   authStatus,
   loginQr,
   loginQrCheck,
+  qqLogin,
   logout,
   listFavorites,
   updateFavorite,
@@ -43,6 +44,7 @@ export const API_PATHS = [
   "/getSingerAlbum",
   "/getAlbumTracks",
   "/auth/qr/check",
+  "/auth/qq",
   "/auth/logout",
   "/user/favorites",
 ] as const;
@@ -70,6 +72,7 @@ export function createRouter() {
   router.get("/auth/status", authStatus);
   router.post("/auth/qr", loginQr);
   router.post("/auth/qr/check", loginQrCheck);
+  router.post("/auth/qq", qqLogin);
   router.post("/auth/logout", logout);
   router.get("/user/favorites", listFavorites);
   router.post("/user/favorites", updateFavorite);

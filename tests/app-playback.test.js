@@ -323,7 +323,7 @@ test("song search cancels stale requests, pages without replacing playback and s
   app.returnToPlayer();
   pending.resolve({ tracks: [song("mobile")], hasMore: false });
   await search;
-  app.resumeMobilePage();
+  app.toggleMobileHome();
   assert.equal(app.getSnapshot().catalog.tracks[0].id, "mobile");
   const late = deferred();
   provider.searchTracks = (_query, _page, options) => {
@@ -893,7 +893,7 @@ for (const pageName of ["search", "albums", "albumTracks"]) {
           : { tracks: [song("found")], hasMore: false },
     );
     await pending;
-    app.resumeMobilePage();
+    app.toggleMobileHome();
     assert.equal(app.getSnapshot().navigation.view, pageName);
     const catalog = app.getSnapshot().catalog;
     assert(
@@ -906,27 +906,39 @@ for (const pageName of ["search", "albums", "albumTracks"]) {
   });
 }
 
-test("mobile queue is a page; responsive transitions preserve playback and close menu modality", async (t) => {
+test("mobile home remembers the browsing page and responsive transitions close overlays", async (t) => {
   const { app } = await setup(t, {}, { mobile: true });
   await app.switchSource("liked");
   app.seek(24);
+  app.toggleMobileHome();
+  assert.equal(app.getSnapshot().navigation.view, "liked");
   app.showSearch();
-  app.returnToPlayer();
+  app.toggleMobileHome();
+  assert.equal(app.getSnapshot().navigation.view, "player");
   assert.equal(app.getSnapshot().navigation.mobileMode, "artist");
-  app.resumeMobilePage();
+  app.showLyrics();
+  assert.equal(app.getSnapshot().navigation.view, "lyrics");
+  app.toggleMobileHome();
+  assert.equal(app.getSnapshot().navigation.view, "player");
+  app.toggleMobileHome();
   assert.equal(app.getSnapshot().navigation.view, "search");
   app.openQueue();
+  assert.equal(app.getSnapshot().navigation.view, "queue");
+  assert.equal(app.getSnapshot().navigation.queueOpen, false);
+  app.toggleMobileHome();
+  assert.equal(app.getSnapshot().navigation.view, "player");
+  app.toggleMobileHome();
   assert.equal(app.getSnapshot().navigation.view, "queue");
   app.setMenu(true);
   app.setMobile(false);
   assert.equal(app.getSnapshot().navigation.view, "player");
-  assert.equal(app.getSnapshot().navigation.queueOpen, true);
   assert.equal(app.getSnapshot().navigation.menuOpen, false);
-  assert.equal(app.session.elapsed, 24);
+  app.openQueue();
+  assert.equal(app.getSnapshot().navigation.queueOpen, true);
   app.setMobile(true);
-  assert.equal(app.getSnapshot().navigation.view, "queue");
-  await app.selectTrack(1);
   assert.equal(app.getSnapshot().navigation.view, "player");
+  assert.equal(app.getSnapshot().navigation.queueOpen, false);
+  assert.equal(app.session.elapsed, 24);
 });
 
 test("lyrics always follow the newly selected song and ignore stale lyric requests", async (t) => {

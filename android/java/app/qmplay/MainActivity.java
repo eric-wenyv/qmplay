@@ -99,6 +99,9 @@ public class MainActivity extends Activity {
             MusicService.updatePlayback(title, artist, playing);
         }
         @JavascriptInterface public void minimize() { runOnUiThread(() -> moveTaskToBack(true)); }
+        @JavascriptInterface public boolean openQqLogin(String url) {
+            return QqLogin.open(MainActivity.this, url);
+        }
     }
 
     static void dispatch(String action) {

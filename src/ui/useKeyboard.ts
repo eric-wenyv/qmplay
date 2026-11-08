@@ -29,7 +29,7 @@ export function useKeyboard(app: MusicApplication, snapshot: AppSnapshot) {
         if (navigation.mobile && navigation.menuOpen) {
           app.setMenu(false);
           focusElement("#mode-toggle");
-        } else if (navigation.queueOpen || navigation.view === "queue") app.closeQueue();
+        } else if (navigation.queueOpen) app.closeQueue();
         else if (navigation.menuOpen) {
           app.setMenu(false);
           focusElement("#mode-toggle");
@@ -101,20 +101,14 @@ export function useKeyboard(app: MusicApplication, snapshot: AppSnapshot) {
         document.querySelector<HTMLElement>('.mode-option[aria-checked="true"]:not([hidden])') ||
         document.querySelector<HTMLElement>(".mode-option:not([hidden])");
       selected?.focus({ preventScroll: true });
-    } else if (
-      (next.queueOpen && !before.queueOpen) ||
-      (next.view === "queue" && before.view !== "queue")
-    )
-      focusElement(next.mobile ? "#queue-panel" : "#close-queue");
-    else if (
-      (before.queueOpen && !next.queueOpen) ||
-      (before.view === "queue" && next.view !== "queue")
-    )
-      focusElement("#queue-toggle");
-    else if (next.view !== before.view) {
+    } else if (next.queueOpen && !before.queueOpen) focusElement("#close-queue");
+    else if (before.queueOpen && !next.queueOpen) {
+      focusElement(next.mobile ? "#home-toggle" : "#queue-toggle");
+    } else if (next.view !== before.view && document.activeElement?.id !== "home-toggle") {
       if (next.view === "search" && !next.mobile) focusElement("#search-input");
       else if (next.view === "albums") focusElement("#play-artist");
       else if (next.view === "albumTracks") focusElement("#album-tracks-back");
+      else if (next.view === "queue") focusElement("#queue-panel");
       else focusElement("#mode-toggle");
     } else if (before.menuOpen && !next.menuOpen && document.activeElement?.closest("#mode-menu"))
       focusElement("#mode-toggle");

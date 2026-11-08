@@ -45,6 +45,8 @@ test("401 triggers authentication recovery; server/network errors remain retryab
     json: async () => ({ error: { message: "upstream failed" } }),
   });
   await assert.rejects(provider.getFavorites(), /upstream failed/);
+  provider.fetcher = async () => reply({});
+  await assert.rejects(provider.getAuthStatus(), /登录状态数据不完整/);
   assert.equal(recoveries, 1);
 });
 test("legacy favorites resolve their numeric song ID before writing and never send credentials to the renderer", async () => {

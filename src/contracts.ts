@@ -64,6 +64,8 @@ export interface AuthState {
     | "scanned"
     | "checking"
     | "waiting"
+    | "needsLogin"
+    | "authorizing"
     | "ready"
     | "unavailable"
     | "expired"
@@ -72,6 +74,7 @@ export interface AuthState {
   message?: string;
   image?: string;
   user?: User;
+  method?: "qq";
 }
 export interface AuthStatus {
   authenticated: boolean;
@@ -81,6 +84,11 @@ export interface LoginQr {
   id: string;
   image: string;
   expiresAt: number;
+}
+export interface QqLogin {
+  id: string;
+  expiresAt: number;
+  url: string;
 }
 export interface LoginResult {
   state: string;
@@ -161,6 +169,7 @@ export interface AppSnapshot {
   };
   library: { liked: Track[]; busyIds: string[] };
   requests: {
+    auth: boolean;
     source: boolean;
     search: boolean;
     trackSearch: boolean;
@@ -181,12 +190,13 @@ export interface MusicApplication {
   stop(): void;
   savePreferences(): void;
   refreshFavorites(): Promise<void>;
+  verifyAuthentication(): Promise<void>;
   retryAuthentication(): Promise<void>;
   setMobile(mobile: boolean): void;
   setMenu(open: boolean): void;
   setView(view: View): void;
   returnToPlayer(): void;
-  resumeMobilePage(): void;
+  toggleMobileHome(): void;
   showSearch(): void;
   search(query: string): Promise<void>;
   cancelSearch(): void;

@@ -12,6 +12,32 @@ interface Challenge {
   graphCookies?: Record<string, string>;
 }
 const challenges = new Map<string, Challenge>();
+const clientId = "100497308";
+const redirectUri = "https://y.qq.com/portal/wx_redirect.html?login_type=1&surl=https://y.qq.com/";
+const scope = "get_user_info,get_app_friends";
+const loginJump = "https://graph.qq.com/oauth2.0/login_jump";
+
+export function cancelLoginQr(owner: string) {
+  for (const [id, challenge] of challenges) if (challenge.owner === owner) challenges.delete(id);
+}
+
+function mobileQrUrl(data: unknown): string {
+  // QQ's type=1 response is JSONP. Read the payload without executing it.
+  const payload = /^ptui_qrcode_CB\((.*)\);?$/.exec(String(data).trim())?.[1];
+  try {
+    const { ec, qrcode } = JSON.parse(payload || "");
+    if (ec === 0 && /^https?:\/\/txz\.qq\.com\/p\?k=[\w-]{32}&f=\d{1,12}$/.test(qrcode))
+      return qrcode.replace(/^http:/, "https:");
+  } catch {
+    // Invalid responses use the same retry path as an unavailable QR.
+  }
+  throw new AuthError(502, "QR_INVALID", "无法创建手机 QQ 登录，请重试");
+}
+
+async function exchangeQqCode(code: string): Promise<MusicCredential> {
+  return validCredential(await musicRequest("QQConnectLogin.LoginServer", "QQLogin", { code }));
+}
+
 export function responseCookies(
   headers: Record<string, any>,
   targetHost?: string,
@@ -77,38 +103,40 @@ export function validCredential(data: any): MusicCredential {
     ),
   };
 }
-export async function createLoginQr(owner: string) {
+export async function createLoginQr(owner: string, mobile = false) {
   for (const [id, challenge] of challenges)
     if (challenge.expiresAt <= Date.now() || challenge.owner === owner) challenges.delete(id);
   if (challenges.size >= 100) throw new AuthError(429, "LOGIN_BUSY", "登录请求过多，请稍后重试");
   const response = await authHttp("https://ssl.ptlogin2.qq.com/ptqrshow", {
     params: {
       appid: "716027609",
-      e: 2,
-      l: "M",
-      s: 3,
-      d: 72,
-      v: 4,
+      ...(mobile ? { e: 0, s: 8, type: 1, u1: loginJump } : { e: 2, l: "M", s: 3, d: 72, v: 4 }),
       t: Math.random(),
       daid: 383,
       pt_3rd_aid: "100497308",
     },
     headers: { Referer: "https://xui.ptlogin2.qq.com/" },
-    responseType: "arraybuffer",
+    responseType: mobile ? "text" : "arraybuffer",
   });
   const qrsig = responseCookies(response.headers).qrsig;
-  const bytes = Buffer.from(response.data);
-  if (!qrsig || !bytes.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")))
-    throw new AuthError(502, "QR_INVALID", "无法获取登录二维码，请重试");
+  if (!qrsig) throw new AuthError(502, "QR_INVALID", "无法获取登录二维码，请重试");
+  const qr = mobile ? { url: mobileQrUrl(response.data) } : { image: qrImage(response.data) };
   const id = newToken(),
     expiresAt = Date.now() + 120000;
   challenges.set(id, { qrsig, expiresAt, owner, busy: false, lastPoll: 0 });
-  return { id, image: `data:image/png;base64,${bytes.toString("base64")}`, expiresAt };
+  return { id, expiresAt, ...qr };
+}
+function qrImage(data: ArrayBuffer) {
+  const bytes = Buffer.from(data);
+  if (!bytes.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")))
+    throw new AuthError(502, "QR_INVALID", "无法获取登录二维码，请重试");
+  return `data:image/png;base64,${bytes.toString("base64")}`;
 }
 export async function checkLoginQr(
   id: string,
   owner: string,
-): Promise<{ state: string; credential?: MusicCredential }> {
+  complete: (credential: MusicCredential, assertCurrent: () => void) => Promise<void>,
+): Promise<{ state: string; user?: { uin: string } }> {
   const challenge = challenges.get(id);
   if (!challenge || challenge.owner !== owner || challenge.expiresAt <= Date.now())
     return { state: "expired" };
@@ -120,7 +148,7 @@ export async function checkLoginQr(
     if (!challenge.callback) {
       const response = await authHttp("https://ssl.ptlogin2.qq.com/ptqrlogin", {
         params: {
-          u1: "https://graph.qq.com/oauth2.0/login_jump",
+          u1: loginJump,
           ptqrtoken: hash33(challenge.qrsig, 0),
           ptredirect: 0,
           h: 1,
@@ -197,10 +225,9 @@ export async function checkLoginQr(
       },
       data: new URLSearchParams({
         response_type: "code",
-        client_id: "100497308",
-        redirect_uri:
-          "https://y.qq.com/portal/wx_redirect.html?login_type=1&surl=https://y.qq.com/",
-        scope: "get_user_info,get_app_friends",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        scope,
         state: id,
         switch: "",
         from_ptlogin: "1",
@@ -216,11 +243,15 @@ export async function checkLoginQr(
     const code = location.searchParams.get("code");
     if (location.origin !== "https://y.qq.com" || !code)
       throw new AuthError(502, "LOGIN_INCOMPLETE", "QQ 音乐授权未完成，请重新登录");
-    const credential = validCredential(
-      await musicRequest("QQConnectLogin.LoginServer", "QQLogin", { code }),
-    );
+    const credential = await exchangeQqCode(code);
+    const assertCurrent = () => {
+      if (challenges.get(id) !== challenge || challenge.expiresAt <= Date.now())
+        throw new AuthError(400, "LOGIN_EXPIRED", "QQ 登录授权已失效，请重新登录");
+    };
+    assertCurrent();
+    await complete(credential, assertCurrent);
     challenges.delete(id);
-    return { state: "authenticated", credential };
+    return { state: "authenticated", user: { uin: String(credential.musicid) } };
   } finally {
     challenge.busy = false;
   }

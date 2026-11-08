@@ -12,6 +12,7 @@ import { build } from "esbuild";
 import { FavoritesView } from "../src/ui/CatalogViews.js";
 import { RadioView } from "../src/ui/RadioView.js";
 import { AlbumTracksView } from "../src/ui/AlbumTracksView.js";
+import { PlaybackControls, PlayerView } from "../src/ui/PlayerView.js";
 import { QueuePanel } from "../src/ui/QueuePanel.js";
 
 // jsdom has no layout engine; use an installed Chromium browser without adding a dependency.
@@ -35,7 +36,8 @@ async function bundledNavigation() {
         import { Navigation } from "./src/ui/Navigation.tsx";
         window.installNavigation = (mobile) => {
           const root = createRoot(document.querySelector("#navigation-root"));
-          let snapshot = { auth: { state: "ready" }, navigation: {
+          if (!mobile) window.qmplayDesktop = { minimize() {}, close() {} };
+          let snapshot = { auth: { state: "ready" }, requests: { auth: false }, navigation: {
             view: "player", mobileMode: "radio", mobile, menuOpen: false } };
           const update = (patch) => {
             snapshot = { ...snapshot, navigation: { ...snapshot.navigation, ...patch } };
@@ -48,7 +50,7 @@ async function bundledNavigation() {
             showSearch: () => choose("search", "artist"),
             showRadio: () => choose("browse", "radio"),
             showLiked: () => choose("liked", "liked"),
-            showQueue: () => choose("queue", "queue"),
+            openQueue: () => choose("queue", "queue"),
           };
           update({});
           return { app, getSnapshot: () => snapshot,
@@ -150,7 +152,7 @@ test(
                       ? "browse"
                       : feature === "album"
                         ? "albumTracks"
-                        : feature === "queue"
+                        : feature === "queue" && mode === "mobile"
                           ? "queue"
                           : "liked",
                   mobile: mode === "mobile",
@@ -254,6 +256,187 @@ test(
   },
 );
 
+test(
+  "mobile player keeps its controls spaced and covers separate before swapping layers",
+  { skip: !browser && "Install Chrome/Chromium for cover flow motion checks", timeout: 40000 },
+  async (t) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "qmplay-cover-flow-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+    const queue = Array.from({ length: 5 }, (_, index) => ({
+      id: String(index),
+      title: "很长的中文歌曲名称".repeat(3),
+      duration: 180,
+    }));
+    const snapshot = {
+      navigation: { mobile: true, view: "player" },
+      playback: { queue, current: queue[1], index: 1, elapsed: 0 },
+      library: { liked: [], busyIds: [] },
+      requests: {},
+    };
+    const view = renderToStaticMarkup(
+      createElement(PlayerView, {
+        app: {},
+        inert: false,
+        selectedIndex: 2,
+        snapshot,
+      }),
+    );
+    const footer = renderToStaticMarkup(
+      createElement(PlaybackControls, { app: {}, snapshot, inert: false, previewIndex: 2 }),
+    );
+    const frames = [
+      [320, 640],
+      [360, 752],
+      [430, 820],
+      [560, 980],
+      [560, 1080],
+    ].map(([width, height]) =>
+      renderToStaticMarkup(
+        createElement("iframe", {
+          width,
+          height,
+          srcDoc: `<!doctype html><meta charset="utf-8"><style>${css}</style>
+          <main class="player"><header class="topbar"></header>
+          <section class="main-stage">${view}</section>${footer}</main>`,
+        }),
+      ),
+    );
+    const results = await measureLayout(
+      directory,
+      `<!doctype html><meta charset="utf-8">
+      ${frames.join("")}<pre id="layout-results"></pre><script>
+      addEventListener("load", () => {
+        const results = [...document.querySelectorAll("iframe")].map((frame) => {
+          const doc = frame.contentDocument;
+          const win = frame.contentWindow;
+          doc.body.getBoundingClientRect();
+          doc.getAnimations().forEach((animation) => animation.finish());
+          const flow = doc.querySelector(".cover-flow");
+          const card = (offset) => flow.querySelector('[data-offset="' + offset + '"]');
+          const art = (offset) => card(offset).querySelector(".album-art");
+          const angle = (node) => {
+            const matrix = new DOMMatrixReadOnly(win.getComputedStyle(node).transform);
+            return Math.atan2(matrix.m13, matrix.m11);
+          };
+          const center = (node) => {
+            const bounds = node.getBoundingClientRect();
+            return (bounds.left + bounds.right) / 2;
+          };
+          const current = art(0), previous = art(-1), next = art(1);
+          const stationary = [angle(previous), angle(current), angle(next)];
+          const bounds = flow.getBoundingClientRect();
+          const title = flow.querySelector(".cover-flow-title");
+          const caption = title.getBoundingClientRect();
+          const currentBounds = current.getBoundingClientRect();
+          const meta = doc.querySelector(".track-meta").getBoundingClientRect();
+          const seek = doc.querySelector("#seek").getBoundingClientRect();
+          const topbar = doc.querySelector(".topbar").getBoundingClientRect();
+          const wheel = doc.querySelector(".click-wheel").getBoundingClientRect();
+          const toolbarGap = topbar.top - seek.bottom;
+          const wheelGap = wheel.top - seek.bottom;
+          const bottomGap = win.innerHeight - wheel.bottom;
+          const metaGap = seek.top - meta.bottom;
+          const titleFits = !title.closest(".cover-flow-card") && Math.abs(center(title) - center(current)) < 1 &&
+            caption.width > 0 && caption.top >= currentBounds.bottom &&
+            caption.bottom <= bounds.bottom && caption.bottom <= meta.top;
+          const centerShare = currentBounds.width / bounds.width;
+          const heightLimit = (bounds.height - 28) / bounds.width;
+          const sideShare = next.getBoundingClientRect().width / currentBounds.width;
+          const centered = Math.abs(center(current) - center(flow)) < 1;
+          const depth = (node) => Number(win.getComputedStyle(node.parentElement).zIndex);
+          const gap = (other, direction) => {
+            const outgoing = current.getBoundingClientRect();
+            const incoming = other.getBoundingClientRect();
+            return direction === 1 ? incoming.left - outgoing.right : outgoing.left - incoming.right;
+          };
+          flow.dataset.dragging = "true";
+          let swapGap = Infinity, rotationError = 0, swapsCleanly = true;
+          const endpointOverlaps = [];
+          for (const direction of [-1, 1]) {
+            const other = art(direction);
+            const turn = stationary[direction + 1];
+            for (let frame = 0; frame <= 100; frame++) {
+              const progress = frame / 100;
+              flow.style.setProperty("--cover-drag", -direction * progress);
+              const distance = gap(other, direction);
+              if (frame === 0 || frame === 100) endpointOverlaps.push(-distance / bounds.width);
+              if (frame >= 48 && frame <= 52) swapGap = Math.min(swapGap, distance);
+              rotationError = Math.max(rotationError,
+                Math.abs(angle(current) + turn * progress),
+                Math.abs(angle(other) - turn * (1 - progress)));
+              if (distance < 0 || frame === 49 || frame === 51)
+                swapsCleanly &&= (depth(current) > depth(other)) === (frame < 50);
+            }
+          }
+          flow.style.setProperty("--cover-drag", "-0.38");
+          const draggedAngle = angle(next);
+          flow.removeAttribute("data-dragging");
+          flow.style.removeProperty("--cover-drag");
+          for (const node of flow.querySelectorAll(".cover-flow-card")) {
+            const offset = Number(node.dataset.offset) - 1;
+            node.dataset.offset = offset;
+            node.style.setProperty("--cover-offset", offset);
+          }
+          angle(next);
+          const transitions = flow.getAnimations({ subtree: true }).filter(
+            (animation) => animation.transitionProperty === "--cover-position");
+          for (const animation of transitions) animation.pause();
+          let settleGap = Infinity, settleError = 0, halfway;
+          let settleSeparated = false, settleLayers = true;
+          for (let time = 0; time <= 280; time += 5) {
+            for (const animation of transitions) animation.currentTime = time;
+            const outgoing = angle(current), incoming = angle(next);
+            const progress = -outgoing / stationary[2];
+            const distance = gap(next, 1);
+            settleError = Math.max(settleError, Math.abs(outgoing - incoming + stationary[2]));
+            if (progress >= 0.45 && progress <= 0.55) {
+              settleSeparated = true;
+              settleGap = Math.min(settleGap, distance);
+            }
+            if (distance < 0) settleLayers &&= (depth(current) > depth(next)) === (progress < 0.5);
+            if (time === 140) halfway = angle(next);
+          }
+          return { stationary, titleFits, toolbarGap, wheelGap, bottomGap, metaGap, centerShare, heightLimit, width: bounds.width,
+            sideShare, centered, swapsCleanly,
+            swapGap, endpointOverlaps, rotationError, settleGap, settleSeparated, settleLayers,
+            settleError, draggedAngle, halfway,
+            settled: angle(next), animated: transitions.length > 0 };
+        });
+        document.querySelector("#layout-results").textContent = JSON.stringify(results);
+      });
+    </script>`,
+    );
+    for (const item of results) {
+      const detail = JSON.stringify(item);
+      const [left, middle, right] = item.stationary;
+      assert(item.titleFits && item.centered && item.animated && item.swapsCleanly, detail);
+      assert(item.toolbarGap >= 5 && item.wheelGap >= 28 && item.metaGap >= 0, detail);
+      assert(Math.abs(item.bottomGap - 18) < 1, detail);
+      assert(
+        Math.abs(item.centerShare - Math.min(0.81, item.heightLimit, 440 / item.width)) < 0.001,
+        detail,
+      );
+      assert(item.sideShare >= 0.25 && item.sideShare <= 0.29, detail);
+      assert(left * right < 0 && Math.abs(middle) < 0.001, detail);
+      assert(
+        item.endpointOverlaps.every((overlap) => overlap > 0 && overlap < 0.08),
+        detail,
+      );
+      assert(
+        item.swapGap > 0 && item.settleSeparated && item.settleGap > 0 && item.settleLayers,
+        detail,
+      );
+      assert(item.rotationError < 0.001 && item.settleError < 0.001, detail);
+      assert(
+        Math.abs(item.halfway) > 0.001 && Math.abs(item.halfway) < Math.abs(item.draggedAngle),
+        detail,
+      );
+      assert(Math.abs(item.settled) < 0.001, detail);
+    }
+  },
+);
+
 for (const reducedMotion of [false, true]) {
   test(
     `navigation unrolls its frame with the selected button and pages crossfade (${reducedMotion ? "reduced motion" : "animated"})`,
@@ -302,8 +485,16 @@ for (const reducedMotion of [false, true]) {
               const control = doc.querySelector(".mode-control"), toggle = doc.querySelector("#mode-toggle");
               const frameNode = doc.querySelector(".mode-frame");
               const mobile = frame.title === "mobile";
+              const verify = doc.querySelector("#verify-login").getBoundingClientRect();
+              const neighbor = (mobile ? toggle : doc.querySelector("#minimize-window")).getBoundingClientRect();
+              const close = doc.querySelector("#close-window").getBoundingClientRect();
+              const playerBounds = doc.querySelector(".player").getBoundingClientRect();
+              const loginAligned = verify.width === neighbor.width && verify.height === neighbor.height &&
+                verify.top === neighbor.top && (mobile
+                  ? verify.left - playerBounds.left === playerBounds.right - neighbor.right
+                  : neighbor.left - verify.right === close.left - neighbor.right);
               const selectedDistance = mobile ? 48 : 96, chosenDistance = mobile ? 96 : 48;
-              const fullSize = mobile ? 148 : 196;
+              const fullSize = 196;
               const read = () => {
                 const matrix = new win.DOMMatrix(style(toggle).transform);
                 return { position: mobile ? -matrix.e : matrix.f,
@@ -397,7 +588,7 @@ for (const reducedMotion of [false, true]) {
                     collapseFailures.push({ from: previousRow.dataset.mode, to: chosenRow.dataset.mode, time, state });
                   }
                   if (!${reducedMotion} && time === 40 && distance < fullSize - 52) {
-                    const outermost = mobile ? 'radio' : 'artist';
+                    const outermost = mobile ? 'queue' : 'artist';
                     if (!near(state.icons[outermost], 0.5)) collapseFailures.push({ time, state, missingFade: outermost });
                   }
                   if (!${reducedMotion} && time === travelTime + 40 && !(state.opacity > 0 && state.opacity < 1)) {
@@ -406,17 +597,6 @@ for (const reducedMotion of [false, true]) {
                 }
                 finish();
               }
-              // Queue has no matching drawer row: its toggle returns only after the rows clear.
-              win.navigationTest.app.showQueue();
-              finish();
-              win.navigationTest.app.setMenu(true);
-              finish();
-              win.navigationTest.app.setMenu(false);
-              sample(40);
-              const queueReturning = read();
-              const queueDoesNotOverlap = ${reducedMotion} ||
-                (queueReturning.toggleOpacity === "0" && queueReturning.opacity === 1);
-              finish();
               win.navigationTest.app.showRadio();
               finish();
               // Dismiss and reopen during travel: neither direction may jump to an endpoint.
@@ -455,7 +635,7 @@ for (const reducedMotion of [false, true]) {
                 flush();
                 const followsFinger = near(read().position, 42) && style(toggle).pointerEvents === "auto" &&
                   style(toggle).touchAction === "none" && read().iconsOpacity === 1 &&
-                  toggle.getAttribute("aria-valuenow") === "1" && captured === 7;
+                  toggle.getAttribute("aria-valuenow") === "2" && captured === 7;
                 dragDetails.push({ phase: "move", ...read(), pointerEvents: style(toggle).pointerEvents, touchAction: style(toggle).touchAction,
                   value: toggle.getAttribute("aria-valuenow"), captured, dragging: control.dataset.dragging });
                 await pointer("pointerup", x + 62, y + 76);
@@ -470,7 +650,7 @@ for (const reducedMotion of [false, true]) {
                 await pointer("pointerup", closed.left - 140, closed.top + 40);
                 const swiped = win.navigationTest.getSnapshot().navigation;
                 dragDetails.push({ phase: "swiped", ...swiped, captured });
-                mobileDragWorks &&= swiped.view === "browse" && !swiped.menuOpen;
+                mobileDragWorks &&= swiped.view === "queue" && !swiped.menuOpen;
                 finish();
                 win.navigationTest.app.setMenu(true);
                 finish();
@@ -479,8 +659,8 @@ for (const reducedMotion of [false, true]) {
                 await pointer("pointermove", active.left + 76, active.top + 50);
                 await pointer("pointercancel", active.left + 76, active.top + 50);
                 finish();
-                mobileDragWorks &&= near(read().position, 96) && control.dataset.dragging === "false" &&
-                  win.navigationTest.getSnapshot().navigation.view === "browse";
+                mobileDragWorks &&= near(read().position, 144) && control.dataset.dragging === "false" &&
+                  win.navigationTest.getSnapshot().navigation.view === "queue";
                 dragDetails.push({ phase: "cancelled", ...read(), ...win.navigationTest.getSnapshot().navigation, dragging: control.dataset.dragging });
               } else {
                 await pointer("pointerdown", 22, 22);
@@ -514,7 +694,7 @@ for (const reducedMotion of [false, true]) {
               }
               win.navigationTest.unmount();
               const cleanedUp = captured === null && !doc.getAnimations().some((animation) => animation.effect.target === toggle);
-              return { name: frame.title, expanded, collapsed, unrollsInOrder, revealsInOrder, closesInOrder, reversesSmoothly, queueDoesNotOverlap, cleanedUp,
+              return { name: frame.title, loginAligned, expanded, collapsed, unrollsInOrder, revealsInOrder, closesInOrder, reversesSmoothly, cleanedUp,
                 appearing, unrolling, firstRevealed, continuing, disappearing, returning, collapseFailures, expansionDuration, mobileDragWorks, dragDetails, crossfade, reverseCrossfade, sharedCell,
                 finishedOutward, settled: style(player).display === "none" && style(page).opacity === "1",
                 reduced: win.matchMedia("(prefers-reduced-motion: reduce)").matches,
@@ -531,13 +711,13 @@ for (const reducedMotion of [false, true]) {
       for (const item of measurements) {
         const detail = JSON.stringify(item);
         assert.equal(item.reduced, reducedMotion, detail);
+        assert(item.loginAligned, detail);
         assert.equal(item.expanded.iconOpacity, item.name === "mobile" ? "1" : "0", detail);
         assert.equal(item.expanded.toggleOpacity, "1", detail);
         assert.equal(item.expanded.opacity, 1, detail);
         assert.equal(item.collapsed.toggleOpacity, "1", detail);
         assert.equal(item.collapsed.menuVisibility, "hidden", detail);
         assert.deepEqual(item.collapseFailures, [], detail);
-        assert(item.queueDoesNotOverlap, detail);
         assert(
           item.finishedOutward && item.settled && item.cleanedUp && item.mobileDragWorks,
           detail,
@@ -545,7 +725,7 @@ for (const reducedMotion of [false, true]) {
         if (reducedMotion) assert.equal(item.animationCount, 0, detail);
         else
           assert(
-            item.expansionDuration === (item.name === "mobile" ? 120 : 160) &&
+            item.expansionDuration === 160 &&
               item.unrollsInOrder &&
               item.revealsInOrder &&
               item.closesInOrder &&

@@ -1,12 +1,27 @@
 import { memo, useEffect, useRef, type CSSProperties } from "react";
 import { artworkUrl } from "../api.js";
 import { formatTime, orderLabels } from "../player.js";
-import type { AppSnapshot, MusicApplication, PlayOrder } from "../contracts.js";
+import type { AppSnapshot, MusicApplication, PlayOrder, View } from "../contracts.js";
+import { CoverFlow } from "./CoverFlow.js";
 import { Icon } from "./Icon.js";
+import { describePage } from "./Navigation.js";
 import { useArtworkTheme } from "./useArtworkTheme.js";
 
-export function PlayerView({ app, snapshot }: { app: MusicApplication; snapshot: AppSnapshot }) {
+export function PlayerView({
+  app,
+  snapshot,
+  inert,
+  selectedIndex,
+  onPreview,
+}: {
+  app: MusicApplication;
+  snapshot: AppSnapshot;
+  inert: boolean;
+  selectedIndex: number;
+  onPreview: (index: number) => void;
+}) {
   const { current, index, source } = snapshot.playback;
+  const { mobile, view } = snapshot.navigation;
   const image = useRef<HTMLImageElement>(null);
   const theme = useArtworkTheme();
   const cover = artworkUrl(current?.coverUrl || "");
@@ -14,53 +29,61 @@ export function PlayerView({ app, snapshot }: { app: MusicApplication; snapshot:
   const busy = Boolean(current && snapshot.library.busyIds.includes(current.id));
   useEffect(() => {
     if (image.current) theme(image.current);
-  }, [cover, theme]);
+  }, [cover, mobile, theme]);
   return (
     <>
-      <div
-        id="listening-view"
-        className="listening-view"
-        hidden={snapshot.navigation.view !== "player" || !current}
-      >
-        <div
-          id="album-art"
-          className="album-art"
-          data-art="original"
-          role="button"
-          tabIndex={current ? 0 : -1}
-          aria-label="查看歌词"
-          aria-controls="lyrics-view"
-          aria-expanded={snapshot.navigation.view === "lyrics"}
-          onClick={() => app.showLyrics()}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              event.stopPropagation();
-              app.showLyrics();
-            }
-          }}
-        >
-          <img
-            ref={image}
-            id="cover-image"
-            src={cover}
-            alt={current?.coverUrl ? `${current.album || current.title} 封面` : "默认封面"}
-            width="1024"
-            height="1024"
-            fetchPriority="high"
-            draggable={false}
-            onLoad={(event) => theme(event.currentTarget)}
-          />
-          <div className="art-light" aria-hidden="true" />
-          <span className="cover-index" aria-hidden="true">
-            {String(index + 1).padStart(2, "0")} —{" "}
-            {
-              { radio: "FM", liked: "LOVE", artist: "ARTIST", album: "ARTIST" }[
-                source?.type || "radio"
-              ]
-            }
-          </span>
-        </div>
+      <div id="listening-view" className="listening-view" hidden={view !== "player" || !current}>
+        {mobile ? (
+          current && (
+            <CoverFlow
+              app={app}
+              playback={snapshot.playback}
+              selectedIndex={selectedIndex}
+              onPreview={onPreview}
+              active={view === "player" && !inert}
+            />
+          )
+        ) : (
+          <div
+            id="album-art"
+            className="album-art"
+            data-art="original"
+            role="button"
+            tabIndex={current ? 0 : -1}
+            aria-label="查看歌词"
+            aria-controls="lyrics-view"
+            aria-expanded={view === "lyrics"}
+            onClick={() => app.showLyrics()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                event.stopPropagation();
+                app.showLyrics();
+              }
+            }}
+          >
+            <img
+              ref={image}
+              id="cover-image"
+              src={cover}
+              alt={current?.coverUrl ? `${current.album || current.title} 封面` : "默认封面"}
+              width="1024"
+              height="1024"
+              fetchPriority="high"
+              draggable={false}
+              onLoad={(event) => theme(event.currentTarget)}
+            />
+            <div className="art-light" aria-hidden="true" />
+            <span className="cover-index" aria-hidden="true">
+              {String(index + 1).padStart(2, "0")} —{" "}
+              {
+                { radio: "FM", liked: "LOVE", artist: "ARTIST", album: "ARTIST" }[
+                  source?.type || "radio"
+                ]
+              }
+            </span>
+          </div>
+        )}
         <div className="track-meta">
           <div className="track-copy">
             <h1 id="track-title">{current?.title || "qmplay"}</h1>
@@ -90,7 +113,7 @@ export function PlayerView({ app, snapshot }: { app: MusicApplication; snapshot:
         id="empty-view"
         className="empty-view"
         aria-label="暂无歌曲"
-        hidden={snapshot.navigation.view !== "player" || Boolean(current)}
+        hidden={view !== "player" || Boolean(current)}
       >
         <Icon name="heart" className="empty-heart icon-slot" />
         <p id="empty-message">
@@ -118,12 +141,14 @@ export function PlaybackControls({
   app,
   snapshot,
   inert,
+  previewIndex,
 }: {
   app: MusicApplication;
   snapshot: AppSnapshot;
   inert: boolean;
+  previewIndex: number | null;
 }) {
-  const playback = snapshot.playback;
+  const { playback, navigation } = snapshot;
   const duration = playback.current?.duration || 0;
   const playing = playback.playing || playback.desiredPlaying;
   return (
@@ -154,15 +179,13 @@ export function PlaybackControls({
       <TransportControls
         app={app}
         hasCurrent={Boolean(playback.current)}
-        playing={playing}
-        loading={playback.loading}
+        playing={playing && previewIndex === null}
+        loading={playback.loading && previewIndex === null}
+        previewIndex={previewIndex}
         order={playback.order}
-        mobile={snapshot.navigation.mobile}
-        queueOpen={
-          snapshot.navigation.mobile
-            ? snapshot.navigation.view === "queue"
-            : snapshot.navigation.queueOpen
-        }
+        mobile={navigation.mobile}
+        homeTarget={navigation.view === "player" ? (navigation.mobilePage ?? "liked") : "player"}
+        queueOpen={navigation.queueOpen}
       />
     </footer>
   );
@@ -173,19 +196,24 @@ const TransportControls = memo(function TransportControls({
   hasCurrent,
   playing,
   loading,
+  previewIndex,
   order,
   mobile,
+  homeTarget,
   queueOpen,
 }: {
   app: MusicApplication;
   hasCurrent: boolean;
   playing: boolean;
   loading: boolean;
+  previewIndex: number | null;
   order: PlayOrder;
   mobile: boolean;
+  homeTarget: View;
   queueOpen: boolean;
 }) {
   const label = loading ? "取消加载" : playing ? "暂停" : "播放";
+  const destination = mobile ? describePage(homeTarget) : null;
   return (
     <div className="control-deck">
       <nav className="transport" aria-label="播放控制">
@@ -231,7 +259,10 @@ const TransportControls = memo(function TransportControls({
             aria-busy={loading}
             data-tip={`${label} / 空格`}
             disabled={!hasCurrent}
-            onClick={() => app.togglePlay()}
+            onClick={() => {
+              if (previewIndex === null) app.togglePlay();
+              else void app.selectTrack(previewIndex);
+            }}
           >
             <Icon name={playing ? "pause" : "play"} />
           </button>
@@ -246,19 +277,31 @@ const TransportControls = memo(function TransportControls({
           >
             <Icon name="next" />
           </button>
-          <button
-            id="queue-toggle"
-            className="icon-button side-control"
-            type="button"
-            aria-label="播放队列"
-            aria-expanded={queueOpen}
-            aria-controls="queue-panel"
-            data-tip="播放队列"
-            onClick={() => app.openQueue()}
-          >
-            <Icon name="queue" />
-            <span id="queue-indicator" className="queue-indicator" />
-          </button>
+          {destination ? (
+            <button
+              id="home-toggle"
+              className="icon-button side-control"
+              type="button"
+              aria-label={destination.label}
+              onClick={() => app.toggleMobileHome()}
+            >
+              <Icon name={destination.icon} />
+            </button>
+          ) : (
+            <button
+              id="queue-toggle"
+              className="icon-button side-control"
+              type="button"
+              aria-label="播放队列"
+              aria-expanded={queueOpen}
+              aria-controls="queue-panel"
+              data-tip="播放队列"
+              onClick={() => app.openQueue()}
+            >
+              <Icon name="queue" />
+              <span id="queue-indicator" className="queue-indicator" />
+            </button>
+          )}
         </div>
       </nav>
     </div>

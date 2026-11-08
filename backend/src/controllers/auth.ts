@@ -1,8 +1,15 @@
 import { Context, Next } from "koa";
-import { createLoginQr, checkLoginQr, refreshCredential } from "../services/auth/login";
+import {
+  cancelLoginQr,
+  checkLoginQr,
+  createLoginQr,
+  refreshCredential,
+} from "../services/auth/login";
 import { getFavorites, setFavorite } from "../services/auth/favorites";
 import {
+  musicKeyExpired,
   MusicSession,
+  MusicCredential,
   newToken,
   SESSION_COOKIE,
   SESSION_MAX_AGE,
@@ -40,9 +47,12 @@ async function refreshSession(ctx: Context, session: MusicSession) {
   let pending = refreshes.get(token);
   if (!pending) {
     pending = (async () => {
-      session.credential = await refreshCredential(session.credential);
+      const latest = await requireSession(ctx);
+      // A concurrent request may have already refreshed the credential we loaded.
+      if (latest.credential.musickey !== session.credential.musickey) return;
+      latest.credential = await refreshCredential(latest.credential);
       // Logout must not resurrect a session when a refresh is already in flight.
-      if (await sessions.get(token)) await sessions.save(token, session);
+      if (await sessions.get(token)) await sessions.save(token, latest);
     })().finally(() => refreshes.delete(token));
     refreshes.set(token, pending);
   }
@@ -55,13 +65,16 @@ export async function withAccount<T>(
   operation: (session: MusicSession) => Promise<T>,
 ) {
   const session = await requireSession(ctx);
-  try {
-    return await operation(session);
-  } catch (error) {
-    if (!(error instanceof AuthError) || error.status !== 401) throw error;
-    await refreshSession(ctx, session);
-    return operation(session);
+  // Favorites can succeed with a key that the playback service no longer accepts.
+  if (!musicKeyExpired(session.credential)) {
+    try {
+      return await operation(session);
+    } catch (error) {
+      if (!(error instanceof AuthError) || error.status !== 401) throw error;
+    }
   }
+  await refreshSession(ctx, session);
+  return operation(session);
 }
 export const authGuard = async (ctx: Context, next: Next) => {
   if (
@@ -131,37 +144,52 @@ export const authStatus = async (ctx: Context) => {
   });
   ctx.body = { data: result };
 };
-export const loginQr = async (ctx: Context) => {
+async function openLoginQr(ctx: Context, mobile: boolean) {
   const owner = ctx.cookies.get(CHALLENGE_COOKIE, { signed: false }) || newToken();
-  const result = await createLoginQr(owner);
+  const result = await createLoginQr(owner, mobile);
   ctx.cookies.set(CHALLENGE_COOKIE, owner, { ...cookieOptions, maxAge: 5 * 60 * 1000 });
   ctx.body = { data: result };
-};
+}
+export const loginQr = (ctx: Context) => openLoginQr(ctx, false);
+export const qqLogin = (ctx: Context) => openLoginQr(ctx, true);
 export const loginQrCheck = async (ctx: Context) => {
   const { id } = body(ctx);
   if (typeof id !== "string" || !/^[a-f0-9]{64}$/.test(id))
     throw new AuthError(400, "INVALID_QR", "二维码标识无效");
-  const result = await checkLoginQr(id, ctx.cookies.get(CHALLENGE_COOKIE, { signed: false }) || "");
-  if (result.credential) {
-    // Do not accept a mere QQ login: verify access to the music account before saving it.
-    await getFavorites(result.credential, 0, 1);
-    const token = newToken();
-    await sessions.save(token, {
-      credential: result.credential,
-      expiresAt: Date.now() + SESSION_MAX_AGE,
-    });
+  const owner = ctx.cookies.get(CHALLENGE_COOKIE, { signed: false }) || "";
+  const result = await checkLoginQr(id, owner, (credential, assertCurrent) =>
+    establishSession(ctx, credential, assertCurrent),
+  );
+  ctx.body = { data: result };
+};
+async function establishSession(
+  ctx: Context,
+  credential: MusicCredential,
+  assertCurrent: () => void,
+) {
+  // Confirm access to the music account before storing the QQ authorization.
+  await getFavorites(credential, 0, 1);
+  assertCurrent();
+  const token = newToken();
+  await sessions.save(token, { credential, expiresAt: Date.now() + SESSION_MAX_AGE });
+  try {
+    assertCurrent();
     const previous = ctx.cookies.get(SESSION_COOKIE, { signed: false });
     if (previous) await sessions.delete(previous);
-    ctx.cookies.set(SESSION_COOKIE, token, {
-      ...cookieOptions,
-      maxAge: SESSION_MAX_AGE,
-      secure: ctx.secure,
-    });
-    ctx.cookies.set(CHALLENGE_COOKIE, null, cookieOptions);
-    ctx.body = { data: { state: result.state, user: { uin: String(result.credential.musicid) } } };
-  } else ctx.body = { data: { state: result.state } };
-};
+    assertCurrent();
+  } catch (error) {
+    await sessions.delete(token);
+    throw error;
+  }
+  ctx.cookies.set(SESSION_COOKIE, token, {
+    ...cookieOptions,
+    maxAge: SESSION_MAX_AGE,
+    secure: ctx.secure,
+  });
+  ctx.cookies.set(CHALLENGE_COOKIE, null, cookieOptions);
+}
 export const logout = async (ctx: Context) => {
+  cancelLoginQr(ctx.cookies.get(CHALLENGE_COOKIE, { signed: false }) || "");
   const token = ctx.cookies.get(SESSION_COOKIE, { signed: false });
   if (token) await sessions.delete(token);
   ctx.cookies.set(SESSION_COOKIE, null, cookieOptions);
