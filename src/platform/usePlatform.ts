@@ -11,6 +11,12 @@ export function usePlatform(app: MusicApplication, snapshot: AppSnapshot) {
     document.documentElement.classList.toggle("desktop", desktop);
     document.body.classList.toggle("desktop", desktop);
     document.body.classList.toggle("android", android);
+    const syncTopInset = () => {
+      const top = window.qmplayAndroid?.topInset?.();
+      if (top !== undefined) document.body.style.setProperty("--android-top-inset", `${top}px`);
+    };
+    window.addEventListener("qmplay-insets", syncTopInset);
+    syncTopInset();
     const query = window.matchMedia(
       "(max-width: 560px), (pointer: coarse) and (max-width: 1024px)",
     );
@@ -60,6 +66,7 @@ export function usePlatform(app: MusicApplication, snapshot: AppSnapshot) {
     void app.start();
     return () => {
       query.removeEventListener("change", resize);
+      window.removeEventListener("qmplay-insets", syncTopInset);
       window.removeEventListener("focus", refresh);
       window.removeEventListener("online", refresh);
       window.removeEventListener("pagehide", hide);
@@ -70,6 +77,7 @@ export function usePlatform(app: MusicApplication, snapshot: AppSnapshot) {
       app.stop();
       document.documentElement.classList.remove("desktop");
       document.body.classList.remove("desktop", "android", "auth-gated");
+      document.body.style.removeProperty("--android-top-inset");
     };
   }, [app]);
 

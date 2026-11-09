@@ -44,6 +44,7 @@ export class Application implements MusicApplication {
   private running = false;
   private playerStarted = false;
   private storageWarning = false;
+  private noticeTimer?: ReturnType<typeof setTimeout>;
   private refreshInFlight: Promise<void> | null = null;
   private lastRefresh = 0;
   private generation = 0;
@@ -115,7 +116,7 @@ export class Application implements MusicApplication {
     );
     this.catalog = new CatalogController(this.store, options.provider, this.navigation, {
       save: () => this.savePreferences(),
-      notice: (message, retry) => this.notice(message, retry),
+      reportError: (message, retry) => this.showNotice(message, "error", retry),
     });
     this.playback = new PlaybackController(
       this.store,
@@ -124,7 +125,8 @@ export class Application implements MusicApplication {
       this.navigation,
       {
         save: () => this.savePreferences(),
-        notice: (message, retry) => this.notice(message, retry),
+        notice: (message) => this.showNotice(message, "info"),
+        reportError: (message, retry) => this.showNotice(message, "error", retry),
         currentChanged: () => this.catalog.currentChanged(),
         now: this.now,
       },
@@ -182,6 +184,7 @@ export class Application implements MusicApplication {
   stop(): void {
     if (!this.running) return;
     this.savePreferences();
+    if (this.store.state.notice?.kind === "info") this.clearNotice();
     this.running = false;
     this.generation++;
     this.authentication.stop();
@@ -226,7 +229,9 @@ export class Application implements MusicApplication {
     } catch (error) {
       if (errorCode(error) === "AUTH_REQUIRED") throw error;
       if (this.running)
-        this.notice(`收藏同步失败：${errorMessage(error)}`, () => this.refreshFavorites());
+        this.showNotice(`收藏同步失败：${errorMessage(error)}`, "error", () =>
+          this.refreshFavorites(),
+        );
     }
   }
   savePreferences(): void {
@@ -248,16 +253,24 @@ export class Application implements MusicApplication {
     );
     if (!success && !this.storageWarning) {
       this.storageWarning = true;
-      this.notice("本机存储空间不足，当前更改无法保存到下次启动");
+      this.showNotice("本机存储空间不足，当前更改无法保存到下次启动", "error");
     }
   }
-  private notice(message: string, retry?: () => unknown): void {
-    this.store.state.notice = { message, retry: retry || null };
+  private showNotice(message: string, kind: "info" | "error", retry?: () => unknown): void {
+    if (kind === "info" && this.store.state.notice?.kind === "error") return;
+    this.clearNotice();
+    this.store.state.notice = { kind, message, retry: retry ?? null };
     this.store.state.announcement = message;
+    if (kind === "info") this.noticeTimer = setTimeout(() => this.dismissNotice(), 3000);
     this.store.publish();
   }
-  dismissNotice(): void {
+  private clearNotice(): void {
+    clearTimeout(this.noticeTimer);
+    this.noticeTimer = undefined;
     this.store.state.notice = null;
+  }
+  dismissNotice(): void {
+    this.clearNotice();
     this.store.publish();
   }
   async retryAuthentication(): Promise<void> {
@@ -305,7 +318,7 @@ export class Application implements MusicApplication {
         else await this.favorites.sync();
         if (generation === this.generation && this.store.state.auth.state === "ready") {
           this.savePreferences();
-          if (this.store.state.requests.auth) this.notice("QQ 音乐登录有效");
+          if (this.store.state.requests.auth) this.showNotice("QQ 音乐登录有效", "info");
         }
       } catch (error) {
         if (
@@ -314,10 +327,13 @@ export class Application implements MusicApplication {
           errorCode(error) !== "AUTH_REQUIRED"
         ) {
           if (this.store.state.requests.auth)
-            this.notice(`无法完成登录验证：${errorMessage(error)}`, () =>
+            this.showNotice(`无法完成登录验证：${errorMessage(error)}`, "error", () =>
               this.verifyAuthentication(),
             );
-          else this.notice(`收藏同步失败：${errorMessage(error)}`, () => this.refreshFavorites());
+          else
+            this.showNotice(`收藏同步失败：${errorMessage(error)}`, "error", () =>
+              this.refreshFavorites(),
+            );
         }
       } finally {
         if (generation === this.generation) {
@@ -353,7 +369,7 @@ export class Application implements MusicApplication {
       this.store.state.announcement = removing ? "已取消喜欢并同步" : "已收藏并同步到 QQ 音乐";
     } catch (error) {
       if (generation === this.generation && errorCode(error) !== "AUTH_REQUIRED")
-        this.notice(errorMessage(error), () => this.refreshFavorites());
+        this.showNotice(errorMessage(error), "error", () => this.refreshFavorites());
     } finally {
       if (generation === this.generation && this.running) {
         this.store.state.library.busyIds = [...this.favorites.busy];
@@ -464,6 +480,9 @@ export class Application implements MusicApplication {
   }
   showLyrics(): void {
     this.catalog.showLyrics();
+  }
+  setInlineLyrics(visible: boolean): void {
+    this.catalog.setInlineLyrics(visible);
   }
 }
 

@@ -109,7 +109,7 @@ export function useKeyboard(app: MusicApplication, snapshot: AppSnapshot) {
       else if (next.view === "albums") focusElement("#play-artist");
       else if (next.view === "albumTracks") focusElement("#album-tracks-back");
       else if (next.view === "queue") focusElement("#queue-panel");
-      else focusElement("#mode-toggle");
+      else focusElement('#mode-toggle, .desktop-nav [aria-current="page"]');
     } else if (before.menuOpen && !next.menuOpen && document.activeElement?.closest("#mode-menu"))
       focusElement("#mode-toggle");
     previous.current = next;

@@ -148,6 +148,53 @@ async function setup(t, preferences = {}, { mobile = false, provider: overrides 
   };
 }
 
+test("notices expire three seconds after the latest message and errors wait for dismissal", async (t) => {
+  const { app, provider } = await setup(t, { queue: songs });
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  await app.verifyAuthentication();
+  assert.equal(app.getSnapshot().notice.message, "QQ 音乐登录有效");
+  t.mock.timers.tick(2000);
+  await app.verifyAuthentication();
+  t.mock.timers.tick(2999);
+  assert.equal(app.getSnapshot().notice.kind, "info");
+  t.mock.timers.tick(1);
+  assert.equal(app.getSnapshot().notice, null);
+
+  await app.verifyAuthentication();
+  const getAuthStatus = provider.getAuthStatus;
+  provider.getAuthStatus = async () => {
+    throw new Error("网络暂时不可用");
+  };
+  await app.verifyAuthentication();
+  const error = app.getSnapshot().notice;
+  assert.equal(error.kind, "error");
+  assert.match(error.message, /网络暂时不可用/);
+  assert.equal(typeof error.retry, "function");
+  t.mock.timers.tick(3000);
+  provider.getAuthStatus = getAuthStatus;
+  await app.verifyAuthentication();
+  await app.selectTrack(1);
+  assert.equal(app.getSnapshot().notice, error);
+  app.dismissNotice();
+  assert.equal(app.getSnapshot().notice, null);
+});
+
+test("storage errors stay visible even without a retry action", async (t) => {
+  const { app, storage } = await setup(t, { queue: songs });
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  storage.setItem = () => {
+    throw new Error("Quota exceeded");
+  };
+  app.savePreferences();
+  const error = app.getSnapshot().notice;
+  assert.equal(error.kind, "error");
+  assert.equal(error.retry, null);
+  t.mock.timers.tick(3000);
+  assert.equal(app.getSnapshot().notice, error);
+  app.dismissNotice();
+  assert.equal(app.getSnapshot().notice, null);
+});
+
 test("restoration preserves an edited queue and progress independently of cloud favorites", async (t) => {
   const { app, audio, saved } = await setup(t, {
     queue: [songs[2], songs[0]],

@@ -1,27 +1,31 @@
-import { memo, useEffect, useRef, type CSSProperties } from "react";
+import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
 import { artworkUrl } from "../api.js";
-import { formatTime, orderLabels } from "../player.js";
+import { formatTime, orderLabels, orderModes } from "../player.js";
 import type { AppSnapshot, MusicApplication, PlayOrder, View } from "../contracts.js";
 import { CoverFlow } from "./CoverFlow.js";
 import { Icon } from "./Icon.js";
 import { describePage } from "./Navigation.js";
 import { useArtworkTheme } from "./useArtworkTheme.js";
+import { useMobileWheelMotion } from "./useMobileWheelMotion.js";
 
 export function PlayerView({
   app,
   snapshot,
+  wide = false,
   inert,
   selectedIndex,
   onPreview,
 }: {
   app: MusicApplication;
   snapshot: AppSnapshot;
+  wide?: boolean;
   inert: boolean;
   selectedIndex: number;
   onPreview: (index: number) => void;
 }) {
   const { current, index, source } = snapshot.playback;
   const { mobile, view } = snapshot.navigation;
+  const showPlayer = view === "player" || (wide && view === "lyrics");
   const image = useRef<HTMLImageElement>(null);
   const theme = useArtworkTheme();
   const cover = artworkUrl(current?.coverUrl || "");
@@ -32,7 +36,7 @@ export function PlayerView({
   }, [cover, mobile, theme]);
   return (
     <>
-      <div id="listening-view" className="listening-view" hidden={view !== "player" || !current}>
+      <div id="listening-view" className="listening-view" hidden={!showPlayer || !current}>
         {mobile ? (
           current && (
             <CoverFlow
@@ -48,19 +52,23 @@ export function PlayerView({
             id="album-art"
             className="album-art"
             data-art="original"
-            role="button"
-            tabIndex={current ? 0 : -1}
-            aria-label="查看歌词"
-            aria-controls="lyrics-view"
-            aria-expanded={view === "lyrics"}
-            onClick={() => app.showLyrics()}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                event.stopPropagation();
-                app.showLyrics();
-              }
-            }}
+            role={wide ? undefined : "button"}
+            tabIndex={!wide && current ? 0 : undefined}
+            aria-label={wide ? undefined : "查看歌词"}
+            aria-controls={wide ? undefined : "lyrics-view"}
+            aria-expanded={wide ? undefined : view === "lyrics"}
+            onClick={wide ? undefined : () => app.showLyrics()}
+            onKeyDown={
+              wide
+                ? undefined
+                : (event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      app.showLyrics();
+                    }
+                  }
+            }
           >
             <img
               ref={image}
@@ -113,7 +121,7 @@ export function PlayerView({
         id="empty-view"
         className="empty-view"
         aria-label="暂无歌曲"
-        hidden={view !== "player" || Boolean(current)}
+        hidden={!showPlayer || Boolean(current)}
       >
         <Icon name="heart" className="empty-heart icon-slot" />
         <p id="empty-message">
@@ -150,7 +158,8 @@ export function PlaybackControls({
 }) {
   const { playback, navigation } = snapshot;
   const duration = playback.current?.duration || 0;
-  const playing = playback.playing || playback.desiredPlaying;
+  const [scrubTime, setScrubTime] = useState<number | null>(null);
+  const elapsed = Math.max(0, Math.min(scrubTime ?? playback.elapsed, duration));
   return (
     <footer className="player-footer" inert={inert}>
       <div className="timeline">
@@ -159,31 +168,35 @@ export function PlaybackControls({
           type="range"
           min="0"
           max={duration}
-          value={Math.min(playback.elapsed, duration)}
+          value={elapsed}
           step="1"
           aria-label="播放进度"
-          aria-valuetext={`${formatTime(playback.elapsed)} / ${formatTime(duration)}`}
+          aria-valuetext={`${formatTime(elapsed)} / ${formatTime(duration)}`}
           style={
             {
-              "--progress": `${duration ? (playback.elapsed / duration) * 100 : 0}%`,
+              "--progress": `${duration ? (elapsed / duration) * 100 : 0}%`,
             } as CSSProperties
           }
           disabled={!playback.current}
           onChange={(event) => app.seek(Number(event.currentTarget.value))}
         />
         <div className="time-labels">
-          <span id="elapsed">{formatTime(playback.elapsed)}</span>
+          <span id="elapsed">{formatTime(elapsed)}</span>
           <span id="duration">{formatTime(duration)}</span>
         </div>
       </div>
       <TransportControls
         app={app}
         hasCurrent={Boolean(playback.current)}
-        playing={playing && previewIndex === null}
-        loading={playback.loading && previewIndex === null}
+        playing={playback.playing}
+        loading={playback.loading}
+        wantsPlayback={playback.playing || playback.desiredPlaying}
+        trackKey={playback.current ? `${playback.index}:${playback.current.id}` : undefined}
+        setScrubTime={setScrubTime}
         previewIndex={previewIndex}
         order={playback.order}
         mobile={navigation.mobile}
+        inert={inert}
         homeTarget={navigation.view === "player" ? (navigation.mobilePage ?? "liked") : "player"}
         queueOpen={navigation.queueOpen}
       />
@@ -196,9 +209,13 @@ const TransportControls = memo(function TransportControls({
   hasCurrent,
   playing,
   loading,
+  wantsPlayback,
+  trackKey,
+  setScrubTime,
   previewIndex,
   order,
   mobile,
+  inert,
   homeTarget,
   queueOpen,
 }: {
@@ -206,46 +223,81 @@ const TransportControls = memo(function TransportControls({
   hasCurrent: boolean;
   playing: boolean;
   loading: boolean;
+  wantsPlayback: boolean;
+  trackKey: string | undefined;
+  setScrubTime: (time: number | null) => void;
   previewIndex: number | null;
   order: PlayOrder;
   mobile: boolean;
+  inert: boolean;
   homeTarget: View;
   queueOpen: boolean;
 }) {
-  const label = loading ? "取消加载" : playing ? "暂停" : "播放";
+  const { wheel, wave, scrubMode, cancelScrub, onClickCapture, releaseFeedback } =
+    useMobileWheelMotion({
+      active: mobile && !inert,
+      app,
+      trackKey,
+      order,
+      setScrubTime,
+    });
+  const previewing = previewIndex !== null;
+  const busy = loading && !previewing && !scrubMode;
+  const canPause = wantsPlayback && !previewing;
+  const label = scrubMode ? "取消调带" : busy ? "取消加载" : canPause ? "暂停" : "播放";
+  const glyph = scrubMode ? "scrub-cancel" : loading ? "cancel" : playing ? "pause" : "play";
   const destination = mobile ? describePage(homeTarget) : null;
   return (
     <div className="control-deck">
       <nav className="transport" aria-label="播放控制">
         <div
+          ref={wheel}
           className="click-wheel"
+          onClickCapture={onClickCapture}
           onClick={(event) => {
-            const target = event.target instanceof Element ? event.target.closest("button") : null;
-            if (
-              mobile &&
-              event.detail > 0 &&
-              target === document.activeElement &&
-              target instanceof HTMLElement
-            )
-              target.blur();
+            if (!mobile || !(event.target instanceof Element)) return;
+            const button = event.target.closest("button");
+            if (!button || button.disabled) return;
+            releaseFeedback(button);
+            if (event.detail > 0 && button === document.activeElement) button.blur();
           }}
         >
+          {mobile && (
+            <div className="wheel-surface" aria-hidden="true">
+              <div className="wheel-wave" ref={wave} />
+            </div>
+          )}
           <button
             id="order-toggle"
             className="icon-button side-control"
             type="button"
             aria-label={`播放顺序：${orderLabels[order]}`}
-            data-tip={orderLabels[order]}
+            data-tip={mobile ? undefined : orderLabels[order]}
             onClick={() => app.cycleOrder()}
           >
-            <Icon name={order} />
+            {mobile ? (
+              <>
+                <span className="wheel-order-drum" aria-hidden="true">
+                  {orderModes.map((mode) => (
+                    <span key={mode} data-wheel-order={mode} data-selected={mode === order}>
+                      <Icon name={mode} />
+                    </span>
+                  ))}
+                </span>
+                <span className="wheel-order-caption" aria-hidden="true">
+                  {orderLabels[order]}
+                </span>
+              </>
+            ) : (
+              <Icon name={order} />
+            )}
           </button>
           <button
             id="previous-track"
             className="icon-button skip-control"
             type="button"
             aria-label="上一首"
-            data-tip="上一首"
+            data-tip={mobile ? undefined : "上一首"}
             disabled={!hasCurrent}
             onClick={() => void app.advance("previous")}
           >
@@ -256,22 +308,34 @@ const TransportControls = memo(function TransportControls({
             className="play-button"
             type="button"
             aria-label={label}
-            aria-busy={loading}
+            aria-busy={busy}
+            data-wheel-glyph={mobile ? glyph : undefined}
+            data-cancel-armed={scrubMode === "cancel" ? "" : undefined}
             data-tip={`${label} / 空格`}
             disabled={!hasCurrent}
             onClick={() => {
+              if (cancelScrub()) return;
               if (previewIndex === null) app.togglePlay();
               else void app.selectTrack(previewIndex);
             }}
           >
-            <Icon name={playing ? "pause" : "play"} />
+            {mobile ? (
+              <span className="wheel-play-face" aria-hidden="true">
+                <Icon name="play" className="icon-slot wheel-play-glyph wheel-play-triangle" />
+                <Icon name="pause" className="icon-slot wheel-play-glyph wheel-pause-bars" />
+                <span className="wheel-play-glyph wheel-cancel-square" />
+                <Icon name="close" className="icon-slot wheel-play-glyph wheel-scrub-cancel" />
+              </span>
+            ) : (
+              <Icon name={canPause ? "pause" : "play"} />
+            )}
           </button>
           <button
             id="next-track"
             className="icon-button skip-control"
             type="button"
             aria-label="下一首"
-            data-tip="下一首"
+            data-tip={mobile ? undefined : "下一首"}
             disabled={!hasCurrent}
             onClick={() => void app.advance("next")}
           >

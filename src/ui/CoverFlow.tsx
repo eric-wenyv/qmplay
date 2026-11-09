@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, type CSSProperties, type PointerEvent } from "react";
 import { artworkUrl } from "../api.js";
 import type { AppSnapshot, MusicApplication } from "../contracts.js";
+import { playHaptic } from "../platform/haptics.js";
 import { useArtworkTheme } from "./useArtworkTheme.js";
 
 interface Drag {
@@ -28,11 +29,39 @@ export function CoverFlow({
   const image = useRef<HTMLImageElement>(null);
   const drag = useRef<Drag | null>(null);
   const suppressClick = useRef(false);
+  const previousPreview = useRef<{ index: number; id: string } | null>(null);
   const theme = useArtworkTheme();
   const cover = current?.coverUrl;
+  const preview = selectedIndex !== playingIndex ? queue[selectedIndex] : undefined;
+  const previewId = preview?.id;
   useEffect(() => {
     if (image.current) theme(image.current);
   }, [cover, current?.id, playingIndex, theme]);
+  useLayoutEffect(() => {
+    const before = previousPreview.current;
+    previousPreview.current = active && previewId ? { index: selectedIndex, id: previewId } : null;
+    if (!active || before?.index !== playingIndex || before.id !== current?.id) return;
+    const artwork = image.current?.closest<HTMLElement>(".album-art");
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (!artwork?.animate || motion.matches) return;
+    const settle = artwork.animate(
+      [
+        { scale: "1", translate: "0 0" },
+        { scale: "0.976", translate: "0 2px", offset: 0.38 },
+        { scale: "1", translate: "0 0" },
+      ],
+      { duration: 280, easing: "cubic-bezier(0.2, 0.65, 0.3, 1)" },
+    );
+    const onPreference = () => {
+      if (motion.matches) settle.cancel();
+    };
+    motion.addEventListener("change", onPreference);
+    settle.onfinish = settle.oncancel = () => motion.removeEventListener("change", onPreference);
+    return () => {
+      settle.cancel();
+      motion.removeEventListener("change", onPreference);
+    };
+  }, [active, current?.id, playingIndex, previewId, selectedIndex]);
 
   const reset = (node: HTMLDivElement) => {
     drag.current = null;
@@ -44,9 +73,11 @@ export function CoverFlow({
     if (node) reset(node);
   }, [active, current?.id, selectedIndex]);
 
-  const select = (step: number) => {
+  const select = (step: number, tactile = false) => {
     const target = selectedIndex + step;
-    if (target >= 0 && target < queue.length) onPreview(target);
+    if (target < 0 || target >= queue.length) return;
+    onPreview(target);
+    if (tactile) playHaptic("cover-step");
   };
   const move = (event: PointerEvent<HTMLDivElement>) => {
     const gesture = drag.current;
@@ -72,7 +103,6 @@ export function CoverFlow({
   };
 
   const start = Math.max(0, selectedIndex - 2);
-  const preview = selectedIndex !== playingIndex ? queue[selectedIndex] : undefined;
   return (
     <div
       ref={flow}
@@ -97,7 +127,8 @@ export function CoverFlow({
         reset(event.currentTarget);
         if (Math.abs(dx) < 10 || Math.abs(dx) <= Math.abs(dy)) return;
         suppressClick.current = true;
-        if (Math.abs(dx) >= Math.max(24, Math.min(56, gesture.step / 2))) select(dx < 0 ? 1 : -1);
+        if (Math.abs(dx) >= Math.max(24, Math.min(56, gesture.step / 2)))
+          select(dx < 0 ? 1 : -1, event.pointerType === "touch" || event.pointerType === "pen");
       }}
       onPointerCancel={(event) => {
         if (drag.current?.id === event.pointerId) reset(event.currentTarget);

@@ -13,6 +13,7 @@ import { FavoritesView } from "../src/ui/CatalogViews.js";
 import { RadioView } from "../src/ui/RadioView.js";
 import { AlbumTracksView } from "../src/ui/AlbumTracksView.js";
 import { PlaybackControls, PlayerView } from "../src/ui/PlayerView.js";
+import { LyricsView } from "../src/ui/LyricsView.js";
 import { QueuePanel } from "../src/ui/QueuePanel.js";
 
 // jsdom has no layout engine; use an installed Chromium browser without adding a dependency.
@@ -23,10 +24,10 @@ const browser =
     (command) => spawnSync(command, ["--version"], { timeout: 5000 }).status === 0,
   );
 const runBrowser = promisify(execFile);
-let navigationScript;
+let fixtureScript;
 
-async function bundledNavigation() {
-  if (navigationScript) return navigationScript;
+async function bundledFixtures() {
+  if (fixtureScript) return fixtureScript;
   const { outputFiles } = await build({
     stdin: {
       resolveDir: fileURLToPath(new URL("../", import.meta.url)),
@@ -34,14 +35,30 @@ async function bundledNavigation() {
         import { createRoot } from "react-dom/client";
         import { flushSync } from "react-dom";
         import { Navigation } from "./src/ui/Navigation.tsx";
-        window.installNavigation = (mobile) => {
+        import { PlaybackControls } from "./src/ui/PlayerView.tsx";
+        window.installPlaybackControls = () => {
+          const actions = [];
+          const app = {
+            advance: (direction) => actions.push(direction),
+            togglePlay: () => actions.push("play"),
+            cycleOrder: () => actions.push("order"),
+            toggleMobileHome: () => actions.push("home"),
+          };
+          const root = createRoot(document.querySelector("#controls-root"));
+          const snapshot = { navigation: { mobile: true, view: "player" }, playback: {
+            current: { duration: 180 }, elapsed: 0, order: "repeat", playing: true } };
+          flushSync(() => root.render(createElement(PlaybackControls, {
+            app, snapshot, previewIndex: null, inert: false })));
+          return actions;
+        };
+        window.installNavigation = (mobile, wide = false) => {
           const root = createRoot(document.querySelector("#navigation-root"));
           if (!mobile) window.qmplayDesktop = { minimize() {}, close() {} };
           let snapshot = { auth: { state: "ready" }, requests: { auth: false }, navigation: {
             view: "player", mobileMode: "radio", mobile, menuOpen: false } };
           const update = (patch) => {
             snapshot = { ...snapshot, navigation: { ...snapshot.navigation, ...patch } };
-            flushSync(() => root.render(createElement(Navigation, { app, snapshot })));
+            flushSync(() => root.render(createElement(Navigation, { app, snapshot, wide })));
           };
           const choose = (view, mode) => update({ view, mobileMode: mode, menuOpen: false });
           const app = {
@@ -67,8 +84,8 @@ async function bundledNavigation() {
     define: { "process.env.NODE_ENV": '"production"' },
     logLevel: "silent",
   });
-  navigationScript = outputFiles[0].text;
-  return navigationScript;
+  fixtureScript = outputFiles[0].text;
+  return fixtureScript;
 }
 
 async function measureLayout(directory, html, extraArgs = []) {
@@ -125,6 +142,8 @@ test(
       ["desktop", 540, 580],
       ["desktop", 360, 640],
       ["browser", 1024, 768],
+      ["wide", 840, 520],
+      ["wide", 1280, 800],
       ["mobile", 360, 780],
       ["mobile", 320, 640],
     ].flatMap(([mode, width, height]) =>
@@ -176,8 +195,10 @@ test(
         const srcDoc = `<!doctype html><html><head><meta charset="utf-8"><style>${css}
         * { animation: none !important; transition: none !important; }</style></head>
       <body class="${mode === "desktop" ? "desktop" : ""}">
-        <main class="player"><header class="topbar"></header>
-          <section class="main-stage">${view}</section><footer class="player-footer"></footer>
+        <main class="player ${mode === "wide" ? "is-wide" : ""}"><header class="topbar"></header>
+          ${mode === "wide" ? '<nav class="desktop-nav"><button></button></nav>' : ""}
+          <section class="main-stage">${feature === "queue" && mode !== "mobile" ? "" : view}</section>
+          <footer class="player-footer"></footer>${feature === "queue" && mode !== "mobile" ? view : ""}
         </main>
       </body></html>`;
         return renderToStaticMarkup(
@@ -197,7 +218,11 @@ test(
           const doc = frame.contentDocument;
           const list = doc.querySelector("#liked-results, #track-results, #album-track-results, #queue-list");
           const search = doc.querySelector("#track-search");
-          const stage = doc.querySelector(".main-stage").getBoundingClientRect();
+          const stageNode = doc.querySelector(".main-stage");
+          const stage = stageNode.getBoundingClientRect();
+          const stageStyle = getComputedStyle(stageNode);
+          const contentLeft = stage.left + parseFloat(stageStyle.paddingLeft);
+          const contentRight = stage.right - parseFloat(stageStyle.paddingRight);
           const field = search?.getBoundingClientRect();
           const actionButton = list.querySelector("[data-next-track], [data-remove='1']");
           const action = actionButton?.getBoundingClientRect();
@@ -211,8 +236,12 @@ test(
             name: frame.title,
             clientWidth: list.clientWidth, scrollWidth: list.scrollWidth,
             scrollTop: list.scrollTop,
-            searchCentered: !field || Math.abs((field.left + field.right) / 2 - (stage.left + stage.right) / 2) <= 1,
+            searchCentered: !field || Math.abs(field.left + field.right - contentLeft - contentRight) <= 2,
             searchFirst: !search || search === search.parentElement.firstElementChild,
+            wideFit: list.id === "queue-list" ? list.parentElement.getBoundingClientRect().width >=
+              Math.max(400, Math.min(560, doc.querySelector(".player").clientWidth * 0.42)) - 1 :
+              Math.abs(list.getBoundingClientRect().width - (contentRight - contentLeft)) <= 1,
+            rowFont: parseFloat(getComputedStyle(list.querySelector(".artist-name, .queue-title")).fontSize),
             textFits: [...list.querySelectorAll(".artist-name, .artist-followers, .queue-title, .queue-artist")].every(
               (text) => text.getBoundingClientRect().width <= text.parentElement.clientWidth + 1),
             nextButtonFits: !action || (action.left >= list.getBoundingClientRect().left &&
@@ -252,6 +281,109 @@ test(
         `${item.name}: next button must remain visible and easy to tap ${JSON.stringify(item)}`,
       );
       assert(item.scrollTop > 0, `${item.name}: vertical scrolling must remain available`);
+      if (item.name.includes(" wide ")) {
+        assert(item.wideFit, `${item.name}: list must use the available wide layout`);
+        assert(item.rowFont >= 15, `${item.name}: row text must scale up`);
+      }
+    }
+  },
+);
+
+test(
+  "wide player fits the cover, scrollable lyrics, timeline and direct navigation",
+  { skip: !browser && "Install Chrome/Chromium for wide player checks", timeout: 40000 },
+  async (t) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "qmplay-wide-player-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+    const script = await bundledFixtures();
+    const props = {
+      app: {},
+      inert: false,
+      wide: true,
+      inline: true,
+      previewIndex: null,
+      snapshot: {
+        navigation: { mobile: false, view: "player" },
+        playback: {
+          current: { id: "song", title: "一首歌".repeat(30), duration: 180 },
+          elapsed: 0,
+        },
+        lyrics: Array.from({ length: 30 }, (_, time) => ({ time, text: "一行歌词".repeat(20) })),
+        library: { liked: [], busyIds: [] },
+        requests: {},
+      },
+    };
+    const player = renderToStaticMarkup(createElement(PlayerView, props));
+    const lyrics = renderToStaticMarkup(createElement(LyricsView, props));
+    const footer = renderToStaticMarkup(createElement(PlaybackControls, props));
+    const frames = [
+      [840, 520, "desktop"],
+      [840, 520, ""],
+      [1280, 800, ""],
+    ].map(([width, height, host]) =>
+      renderToStaticMarkup(
+        createElement("iframe", {
+          width,
+          height,
+          title: `${width}×${height} ${host || "browser"}`,
+          srcDoc: `<!doctype html><meta charset="utf-8"><style>${css}</style>
+          <body class="${host}"><main class="player is-wide">
+          <div id="navigation-root" style="display:contents"></div>
+          <section class="main-stage with-inline-lyrics">${player}${lyrics}</section>${footer}</main>
+          <script>${script}\nwindow.installNavigation(false, true);</script>`,
+        }),
+      ),
+    );
+    const measurements = await measureLayout(
+      directory,
+      `<!doctype html><meta charset="utf-8">
+      ${frames.join("")}<pre id="layout-results"></pre><script>
+      addEventListener("load", () => {
+        const results = [...document.querySelectorAll("iframe")].map((frame) => {
+          const doc = frame.contentDocument;
+          const get = (selector) => doc.querySelector(selector);
+          const bounds = (selector) => get(selector).getBoundingClientRect();
+          const columns = frame.contentWindow.getComputedStyle(get(".main-stage"))
+            .gridTemplateColumns.split(" ").map(parseFloat);
+          const shell = bounds(".player"), cover = bounds(".listening-view"), art = bounds("#album-art");
+          const lyrics = bounds("#lyrics-view"), seek = bounds("#seek"), nav = bounds(".desktop-nav");
+          const lines = get("#lyrics-lines");
+          const entries = [...get(".desktop-nav").children].map((node) => node.getBoundingClientRect());
+          const entry = get(".desktop-nav button");
+          const tip = () => frame.contentWindow.getComputedStyle(entry, "::after");
+          const hiddenLabel = tip().opacity === "0" && !entry.textContent.trim();
+          entry.focus({ preventScroll: true });
+          doc.getAnimations().forEach((animation) => animation.finish());
+          const focusedLabel = tip().opacity === "1" && parseFloat(tip().right) > entry.offsetWidth &&
+            entry.getAttribute("aria-label") === entry.dataset.tip;
+          return { name: frame.title, ratio: columns[1] / columns[0],
+            fits: art.width > 0 && cover.bottom <= seek.top && lyrics.bottom <= seek.top && cover.right < lyrics.left,
+            scrolls: lines.scrollHeight > lines.clientHeight && lines.scrollWidth <= lines.clientWidth,
+            navOnRight: nav.left > lyrics.right && nav.top >= lyrics.top && nav.bottom <= lyrics.bottom &&
+              entries.length === 4 && entries.every((entry, i) =>
+                entry.left === nav.left && (i === 0 || entry.top >= entries[i - 1].bottom)),
+            divider: frame.contentWindow.getComputedStyle(get("#lyrics-view")).borderInlineStartWidth,
+            scrollbarButtons: frame.contentWindow.getComputedStyle(lines, "::-webkit-scrollbar-button").display,
+            scrollbarThumb: frame.contentWindow.getComputedStyle(lines, "::-webkit-scrollbar-thumb").backgroundColor,
+            labels: hiddenLabel && focusedLabel,
+            extended: seek.width > shell.width * 0.8 && seek.left <= cover.left && seek.right >= lyrics.right,
+            playButton: bounds("#play-toggle").width,
+          };
+        });
+        document.querySelector("#layout-results").textContent = JSON.stringify(results);
+      });</script>`,
+    );
+    assert.equal(measurements.length, frames.length);
+    for (const item of measurements) {
+      const detail = JSON.stringify(item);
+      assert(Math.abs(item.ratio - 2) < 0.01, detail);
+      assert(item.fits && item.scrolls && item.navOnRight && item.extended, detail);
+      assert(item.labels, detail);
+      assert.equal(item.divider, "0px", detail);
+      assert.equal(item.scrollbarButtons, "none", detail);
+      assert.equal(item.scrollbarThumb, "rgba(0, 0, 0, 0)", detail);
+      assert(item.playButton >= 60, detail);
     }
   },
 );
@@ -286,18 +418,19 @@ test(
       createElement(PlaybackControls, { app: {}, snapshot, inert: false, previewIndex: 2 }),
     );
     const frames = [
-      [320, 640],
-      [360, 752],
-      [430, 820],
-      [560, 980],
-      [560, 1080],
-    ].map(([width, height]) =>
+      [320, 640, 0],
+      [360, 752, 40],
+      [430, 820, 54],
+      [560, 980, 0],
+      [560, 1080, 52],
+    ].map(([width, height, topInset]) =>
       renderToStaticMarkup(
         createElement("iframe", {
           width,
           height,
+          "data-top-inset": topInset,
           srcDoc: `<!doctype html><meta charset="utf-8"><style>${css}</style>
-          <main class="player"><header class="topbar"></header>
+          <body style="--android-top-inset: ${topInset}px"><main class="player"><header class="topbar"></header>
           <section class="main-stage">${view}</section>${footer}</main>`,
         }),
       ),
@@ -312,6 +445,13 @@ test(
           const win = frame.contentWindow;
           doc.body.getBoundingClientRect();
           doc.getAnimations().forEach((animation) => animation.finish());
+          const player = doc.querySelector(".player");
+          const stage = doc.querySelector(".main-stage");
+          const topInset = Number(frame.dataset.topInset);
+          const playerBounds = player.getBoundingClientRect();
+          const safeTop = playerBounds.top === 0 && playerBounds.bottom === win.innerHeight &&
+            parseFloat(win.getComputedStyle(player).paddingTop) === topInset &&
+            stage.getBoundingClientRect().top >= topInset;
           const flow = doc.querySelector(".cover-flow");
           const card = (offset) => flow.querySelector('[data-offset="' + offset + '"]');
           const art = (offset) => card(offset).querySelector(".album-art");
@@ -397,7 +537,7 @@ test(
             if (distance < 0) settleLayers &&= (depth(current) > depth(next)) === (progress < 0.5);
             if (time === 140) halfway = angle(next);
           }
-          return { stationary, titleFits, toolbarGap, wheelGap, bottomGap, metaGap, centerShare, heightLimit, width: bounds.width,
+          return { stationary, titleFits, safeTop, toolbarGap, wheelGap, bottomGap, metaGap, centerShare, heightLimit, width: bounds.width,
             sideShare, centered, swapsCleanly,
             swapGap, endpointOverlaps, rotationError, settleGap, settleSeparated, settleLayers,
             settleError, draggedAngle, halfway,
@@ -410,6 +550,7 @@ test(
     for (const item of results) {
       const detail = JSON.stringify(item);
       const [left, middle, right] = item.stationary;
+      assert(item.safeTop, detail);
       assert(item.titleFits && item.centered && item.animated && item.swapsCleanly, detail);
       assert(item.toolbarGap >= 5 && item.wheelGap >= 28 && item.metaGap >= 0, detail);
       assert(Math.abs(item.bottomGap - 18) < 1, detail);
@@ -437,6 +578,102 @@ test(
   },
 );
 
+test(
+  "mobile click wheel hits the four unmarked sectors and animates only the pressed control",
+  { skip: !browser && "Install Chrome/Chromium for click wheel checks", timeout: 40000 },
+  async (t) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "qmplay-click-wheel-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+    const script = await bundledFixtures();
+    const srcDoc = `<!doctype html><meta charset="utf-8"><style>${css}</style>
+      <main class="player"><div id="controls-root" style="display:contents"></div></main>
+      <script>${script}\nwindow.wheelActions = window.installPlaybackControls();</script>`;
+    const frame = renderToStaticMarkup(
+      createElement("iframe", { width: 360, height: 780, srcDoc }),
+    );
+    const result = await measureLayout(
+      directory,
+      `<!doctype html><meta charset="utf-8">
+      ${frame}<pre id="layout-results"></pre><script>
+      addEventListener("load", () => {
+        const frame = document.querySelector("iframe"), win = frame.contentWindow;
+        const doc = frame.contentDocument, wheel = doc.querySelector(".click-wheel");
+        const bounds = wheel.getBoundingClientRect();
+        const controls = [...wheel.querySelectorAll("button")];
+        const hit = (x, y) => doc.elementFromPoint(bounds.left + (0.5 + x) * bounds.width,
+          bounds.top + (0.5 + y) * bounds.height)?.closest("button");
+        const points = {
+          "home-toggle": [[0, -0.42], [0.32, -0.35], [0.14, -0.16]],
+          "next-track": [[0.42, 0], [0.35, 0.32], [0.16, 0.14]],
+          "order-toggle": [[0, 0.42], [-0.32, 0.35], [-0.14, 0.16]],
+          "previous-track": [[-0.42, 0], [-0.35, -0.32], [-0.16, -0.14]],
+          "play-toggle": [[0, 0], [0.12, 0.12], [-0.17, 0]],
+        };
+        const face = (button) => button.querySelector(".wheel-play-face, .wheel-order-drum, .icon-slot");
+        const scale = (button) => Number(win.getComputedStyle(face(button)).scale);
+        const shadow = (button) => Number(win.getComputedStyle(button, "::before").opacity);
+        const rim = (button) => win.getComputedStyle(button, "::after");
+        const feedback = Object.entries(points).map(([id, [point, ...rest]]) => {
+          const button = hit(...point);
+          if (button?.id !== id) return { id, hit: button?.id };
+          const hitRegion = rest.every((sample) => hit(...sample) === button);
+          const outer = id !== "play-toggle";
+          const rimVisible = !outer || (rim(button).display !== "none" &&
+            rim(button).transform === "none" && rim(button).borderTopWidth === "1px");
+          button.click();
+          const animations = button.getAnimations({ subtree: true });
+          if (!animations.length) return { id, animation: false };
+          const sample = (time) => animations.forEach((animation) => {
+            animation.pause();
+            animation.currentTime = time;
+          });
+          sample(0);
+          const pressed = scale(button);
+          const shown = pressed < 1 && (!outer || (
+            shadow(button) > 0 && Number(rim(button).opacity) === 0 &&
+            win.getComputedStyle(button).backgroundColor === "rgba(0, 0, 0, 0)"
+          ));
+          const isolated = controls.filter((other) => other !== button).every(
+            (other) => scale(other) === 1 && (other.id === "play-toggle" ||
+              (shadow(other) === 0 && Number(rim(other).opacity) === 1)));
+          const stationary = win.getComputedStyle(wheel.querySelector(".wheel-surface")).transform === "none";
+          sample(80);
+          const releasing = scale(button);
+          const rimReleasing = Number(rim(button).opacity);
+          animations.forEach((animation) => animation.finish());
+          return { id, hitRegion, rimVisible, shown, isolated, stationary,
+            released: scale(button) === 1 && (!outer || (shadow(button) === 0 && Number(rim(button).opacity) === 1)),
+            animated: pressed < releasing && releasing < 1 && (!outer || (rimReleasing > 0 && rimReleasing < 1)) };
+        });
+        document.querySelector("#layout-results").textContent = JSON.stringify({
+          feedback, actions: win.wheelActions, outside: !hit(0.37, 0.37),
+          centerRatio: doc.querySelector("#play-toggle").getBoundingClientRect().width / bounds.width,
+        });
+      });
+    </script>`,
+    );
+    assert(result.outside, JSON.stringify(result));
+    assert(result.centerRatio > 1 / 3 && result.centerRatio < 0.36, JSON.stringify(result));
+    assert.deepEqual(result.actions, ["home", "next", "order", "previous", "play"]);
+    for (const { id, ...checks } of result.feedback) {
+      assert.deepEqual(
+        checks,
+        {
+          hitRegion: true,
+          rimVisible: true,
+          shown: true,
+          isolated: true,
+          stationary: true,
+          released: true,
+          animated: true,
+        },
+        id,
+      );
+    }
+  },
+);
+
 for (const reducedMotion of [false, true]) {
   test(
     `navigation unrolls its frame with the selected button and pages crossfade (${reducedMotion ? "reduced motion" : "animated"})`,
@@ -448,7 +685,7 @@ for (const reducedMotion of [false, true]) {
       const directory = await mkdtemp(path.join(os.tmpdir(), "qmplay-motion-"));
       t.after(() => rm(directory, { recursive: true, force: true }));
       const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
-      const script = await bundledNavigation();
+      const script = await bundledFixtures();
       const frames = [false, true].map((mobile) => {
         const srcDoc = `<!doctype html><html><head><style>${css}</style></head>
             <body class="${mobile ? "" : "desktop"}"><main class="player">

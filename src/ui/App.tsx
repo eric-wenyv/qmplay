@@ -1,4 +1,4 @@
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { MusicApplication } from "../contracts.js";
 import { usePlatform } from "../platform/usePlatform.js";
 import { Navigation } from "./Navigation.js";
@@ -18,12 +18,32 @@ interface TrackPreview {
   playingId: string;
 }
 
+const wideQuery = "(min-width: 840px)";
+const isWideViewport = () => window.matchMedia(wideQuery).matches;
+function subscribeToWidth(listener: () => void) {
+  const query = window.matchMedia(wideQuery);
+  query.addEventListener("change", listener);
+  return () => query.removeEventListener("change", listener);
+}
+
 /** React renders snapshots; application controllers own all music workflows. */
 export function App({ app }: { app: MusicApplication }) {
   const snapshot = useSyncExternalStore(app.subscribe, app.getSnapshot, app.getSnapshot);
   usePlatform(app, snapshot);
   useKeyboard(app, snapshot);
   const { navigation, playback, catalog, library, requests } = snapshot;
+  const wideViewport = useSyncExternalStore(subscribeToWidth, isWideViewport, () => false);
+  const wide = wideViewport && !navigation.mobile && !window.qmplayAndroid;
+  const playerPage = navigation.view === "player" || (wide && navigation.view === "lyrics");
+  const inlineLyrics = wide && playerPage && snapshot.auth.state === "ready";
+  useEffect(() => {
+    app.setInlineLyrics(inlineLyrics);
+    return () => app.setInlineLyrics(false);
+  }, [app, inlineLyrics]);
+  useEffect(() => {
+    if (wide && navigation.view === "lyrics") app.setView("player");
+    if (wide && navigation.menuOpen) app.setMenu(false);
+  }, [app, wide, navigation.view, navigation.menuOpen]);
   const desktopQueue = !navigation.mobile && navigation.queueOpen;
   const modalMenu = navigation.mobile && navigation.menuOpen;
   const controlsInert = modalMenu || desktopQueue || snapshot.auth.state !== "ready";
@@ -42,9 +62,10 @@ export function App({ app }: { app: MusicApplication }) {
   // Keep feature trees mounted while reusing their elements until consumed data changes.
   // A media timeupdate therefore never walks an unchanged catalogue or library.
   const navigationView = useMemo(
-    () => <Navigation app={app} snapshot={snapshot} />,
+    () => <Navigation app={app} snapshot={snapshot} wide={wide} />,
     [
       app,
+      wide,
       navigation.view,
       navigation.mobile,
       navigation.mobileMode,
@@ -60,6 +81,7 @@ export function App({ app }: { app: MusicApplication }) {
       <PlayerView
         app={app}
         snapshot={snapshot}
+        wide={wide}
         inert={controlsInert}
         selectedIndex={activePreview ?? playback.index}
         onPreview={(index) => {
@@ -79,6 +101,7 @@ export function App({ app }: { app: MusicApplication }) {
     ),
     [
       app,
+      wide,
       playback.current,
       navigation.mobile ? playback.queue : null,
       playback.index,
@@ -136,13 +159,14 @@ export function App({ app }: { app: MusicApplication }) {
     [app, library.liked, navigation.view],
   );
   const activeLyric =
-    navigation.view === "lyrics"
+    navigation.view === "lyrics" || inlineLyrics
       ? snapshot.lyrics.findLastIndex((line) => line.time <= playback.elapsed)
       : -1;
   const lyricsView = useMemo(
-    () => <LyricsView app={app} snapshot={snapshot} />,
+    () => <LyricsView app={app} snapshot={snapshot} inline={inlineLyrics} />,
     [
       app,
+      inlineLyrics,
       snapshot.lyrics,
       requests.lyrics,
       navigation.view,
@@ -167,9 +191,10 @@ export function App({ app }: { app: MusicApplication }) {
   );
   const className = [
     "player",
+    wide && "is-wide",
     playback.playing && "is-playing",
     playback.loading && "is-buffering",
-    navigation.view !== "player" && "is-searching",
+    !playerPage && "is-searching",
     modalMenu && "is-menu-open",
   ]
     .filter(Boolean)
@@ -187,6 +212,7 @@ export function App({ app }: { app: MusicApplication }) {
       }}
       onClick={(event) => {
         if (
+          wide ||
           navigation.view !== "lyrics" ||
           navigation.queueOpen ||
           (event.target instanceof Element &&
@@ -207,7 +233,9 @@ export function App({ app }: { app: MusicApplication }) {
       {navigationView}
       {authView}
       <section
-        className="main-stage"
+        className={
+          inlineLyrics && playback.current ? "main-stage with-inline-lyrics" : "main-stage"
+        }
         aria-label="正在播放"
         aria-busy={snapshot.requests.source}
         inert={controlsInert}

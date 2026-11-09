@@ -133,13 +133,24 @@ function trackListeners(target) {
     },
   };
 }
-async function mount(t, { mobile = false, provider: overrides = {}, queue = songs, openQq } = {}) {
+async function mount(
+  t,
+  { mobile = false, provider: overrides = {}, queue = songs, openQq, android } = {},
+) {
   document.body.innerHTML = "";
   delete window.qmplayDesktop;
-  delete window.qmplayAndroid;
+  if (android) window.qmplayAndroid = android;
+  else delete window.qmplayAndroid;
   if (!mobile) window.qmplayDesktop = { minimize() {}, close() {} };
   const media = Object.assign(new dom.window.EventTarget(), { matches: mobile });
-  window.matchMedia = () => media;
+  const wideMedia = Object.assign(new dom.window.EventTarget(), { matches: false });
+  const reducedMotion = Object.assign(new dom.window.EventTarget(), { matches: false });
+  window.matchMedia = (query) =>
+    query.includes("prefers-reduced-motion")
+      ? reducedMotion
+      : query === "(min-width: 840px)"
+        ? wideMedia
+        : media;
   globalThis.matchMedia = window.matchMedia;
   const handlers = new Map();
   Object.defineProperty(navigator, "mediaSession", {
@@ -288,6 +299,8 @@ async function mount(t, { mobile = false, provider: overrides = {}, queue = song
     storage,
     container,
     media,
+    wideMedia,
+    reducedMotion,
     handlers,
     intervals,
     windowTracking,
@@ -776,11 +789,31 @@ test("desktop verification checks an active session and enters QR login only whe
   assert.equal(player.audio.paused, false);
   assert.equal(player.requests.includes("qr"), false);
 
+  await click("#dismiss-notice");
+  assert.equal(document.querySelector("#notice").hidden, true);
+  await click("#verify-login");
+
   player.provider.getAuthStatus = async () => ({ authenticated: false });
   await click("#notice-action");
   assert.equal(player.app.getSnapshot().auth.state, "waiting");
   assert.equal(player.audio.paused, true);
   assert.equal(document.querySelector("#auth-qr").hidden, false);
+});
+
+test("React applies Android's top inset and updates it when the window changes", async (t) => {
+  let topInset = 44;
+  const player = await mount(t, {
+    mobile: true,
+    android: { topInset: () => topInset, playback() {} },
+  });
+  const padding = () => document.body.style.getPropertyValue("--android-top-inset");
+  assert.equal(padding(), "44px");
+  topInset = 28;
+  window.dispatchEvent(new Event("qmplay-insets"));
+  assert.equal(padding(), "28px");
+  await player.unmount();
+  window.dispatchEvent(new Event("qmplay-insets"));
+  assert.equal(padding(), "");
 });
 
 test("mobile login shows a dedicated button and restores the player after QQ confirmation", async (t) => {
@@ -866,6 +899,67 @@ test("React favorite, lyric seek, and queue actions call the real application co
   assert.equal(document.querySelector("#queue-panel").hidden, true);
   assert.equal(document.querySelector("#track-title").textContent, "歌曲 c");
   assert.equal(player.audio.paused, false);
+});
+
+test("wide desktop shows synchronized lyrics and direct navigation across viewport changes", async (t) => {
+  const loaded = [];
+  const { app, wideMedia } = await mount(t, {
+    provider: {
+      async getLyrics(id) {
+        loaded.push(id);
+        return [
+          { time: 0, text: `开场 ${id}` },
+          { time: 42, text: `下一句 ${id}` },
+        ];
+      },
+    },
+  });
+  const resize = (wide) =>
+    act(async () => {
+      wideMedia.matches = wide;
+      wideMedia.dispatchEvent(new Event("change"));
+      await tick();
+    });
+  assert.deepEqual(loaded, []);
+  await resize(true);
+  assert(document.querySelector(".player").classList.contains("is-wide"));
+  assert.equal(document.querySelector("#mode-toggle"), null);
+  assert.equal(document.querySelector(".desktop-nav [aria-current=page]").dataset.mode, "home");
+  assert.equal(document.querySelector("#listening-view").hidden, false);
+  assert.equal(document.querySelector("#lyrics-view").hidden, false);
+  assert.equal((await click("#album-art")).hasAttribute("role"), false);
+  assert.equal(app.getSnapshot().navigation.view, "player");
+  assert.equal(document.querySelector(".lyric-line[aria-current=true]").textContent, "开场 a");
+  const lyricList = document.querySelector("#lyrics-lines");
+  Object.defineProperties(lyricList, {
+    scrollHeight: { value: 600 },
+    clientHeight: { value: 200 },
+  });
+  await click('.lyric-line[data-time="42"]');
+  assert.equal(app.getSnapshot().playback.elapsed, 42);
+  lyricList.dispatchEvent(new Event("scroll"));
+  assert.equal(lyricList.dataset.scrolling, undefined);
+  lyricList.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: 120 }));
+  assert.equal(lyricList.dataset.scrolling, "true");
+  await click("#next-track");
+  assert.equal(document.querySelector(".lyric-line[aria-current=true]").textContent, "开场 b");
+  await click('.desktop-nav [data-mode="artist"]');
+  assert.equal(document.activeElement.id, "search-input");
+  assert.equal(document.querySelector(".desktop-nav [aria-current=page]").dataset.mode, "artist");
+  assert.equal(document.querySelector("#lyrics-view").hidden, true);
+  assert.equal(lyricList.dataset.scrolling, undefined);
+  await click('.desktop-nav [data-mode="home"]');
+  assert.equal(document.querySelector("#lyrics-view").hidden, false);
+  await resize(false);
+  assert.equal(document.querySelector("#lyrics-view").hidden, true);
+  assert(document.querySelector("#mode-toggle"));
+  await click("#album-art");
+  assert.equal(app.getSnapshot().navigation.view, "lyrics");
+  await resize(true);
+  assert.equal(app.getSnapshot().navigation.view, "player");
+  assert.equal(document.querySelector("#listening-view").hidden, false);
+  assert.equal(document.querySelector("#lyrics-view").hidden, false);
+  assert.deepEqual(loaded, ["a", "b"]);
 });
 
 test("React search and album selection use typed data and render upstream text safely", async (t) => {
@@ -1064,7 +1158,7 @@ test("React search defers IME queries and removes stale clickable results as inp
   );
 });
 
-function dispatchPointer(target, type, x, y = 0) {
+function dispatchPointer(target, type, x, y = 0, timeStamp) {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y });
   for (const [name, value] of Object.entries({
     pointerId: 1,
@@ -1072,6 +1166,7 @@ function dispatchPointer(target, type, x, y = 0) {
     isPrimary: true,
   }))
     Object.defineProperty(event, name, { value });
+  if (timeStamp !== undefined) Object.defineProperty(event, "timeStamp", { value: timeStamp });
   target.dispatchEvent(event);
 }
 
@@ -1219,7 +1314,12 @@ test("React home suspends and resumes the mounted page and stage swipes no longe
 });
 
 test("React mobile cover swipes preview tracks until the cover or play button is clicked", async (t) => {
-  const player = await mount(t, { mobile: true });
+  const haptics = [];
+  const player = await mount(t, {
+    mobile: true,
+    android: { playback() {}, haptic: (effect) => haptics.push(effect) },
+  });
+  const animations = recordAnimations(t);
   const flow = document.querySelector(".cover-flow");
   const lyrics = document.querySelector("#album-art");
   const title = flow.querySelector(".cover-flow-title");
@@ -1234,6 +1334,7 @@ test("React mobile cover swipes preview tracks until the cover or play button is
   await pointer(lyrics, "pointermove", 166, 160);
   await pointer(lyrics, "pointerup", 100, 161);
   assert.equal(player.app.getSnapshot().playback.current.id, "a");
+  assert.deepEqual(haptics, []);
 
   await pointer(lyrics, "pointerdown", 180, 100);
   await pointer(lyrics, "pointermove", 100, 104);
@@ -1242,6 +1343,7 @@ test("React mobile cover swipes preview tracks until the cover or play button is
   await pointer(lyrics, "pointercancel", 100, 104);
   assert.equal(flow.style.getPropertyValue("--cover-drag"), "");
   assert.equal(player.app.getSnapshot().playback.current.id, "a");
+  assert.deepEqual(haptics, []);
 
   await pointer(lyrics, "pointerdown", 180, 100);
   await pointer(lyrics, "pointermove", 100, 104);
@@ -1254,8 +1356,11 @@ test("React mobile cover swipes preview tracks until the cover or play button is
   assert.equal(player.audio.paused, true);
   assert.equal(player.audio.loads, loads);
   assert.equal(title.textContent, "歌曲 b");
+  assert.deepEqual(haptics, ["cover-step"]);
   assert.equal(lyrics.getAttribute("aria-label"), "播放 歌曲 b");
   assert.equal(document.querySelector(".track-meta h1").textContent, "歌曲 a");
+  assert.equal(play.dataset.wheelGlyph, "play");
+  assert.equal(animations.length, 0);
 
   await pointer(lyrics, "pointerdown", 100, 100);
   await pointer(lyrics, "pointerup", 180, 100);
@@ -1265,19 +1370,25 @@ test("React mobile cover swipes preview tracks until the cover or play button is
   assert.equal(title.textContent, "");
   await keyboard(lyrics, "ArrowRight");
   assert.equal(title.textContent, "歌曲 b");
+  assert.deepEqual(haptics, ["cover-step", "cover-step"]);
   await click("#play-toggle");
   assert.equal(player.app.getSnapshot().playback.current.id, "b");
   assert.equal(player.audio.paused, false);
   assert.equal(title.textContent, "");
   assert.equal(play.getAttribute("aria-label"), "暂停");
+  assert.equal(play.dataset.wheelGlyph, "pause");
+  assert(animations.some(({ node }) => node.contains(flow.querySelector("#cover-image"))));
 
   const playingLoads = player.audio.loads;
+  const beforePreview = animations.length;
   await keyboard(lyrics, "ArrowRight");
   assert.equal(title.textContent, "歌曲 c");
   assert.equal(player.app.getSnapshot().playback.current.id, "b");
   assert.equal(player.audio.paused, false);
   assert.equal(player.audio.loads, playingLoads);
   assert.equal(play.getAttribute("aria-label"), "播放");
+  assert.equal(play.dataset.wheelGlyph, "pause");
+  assert.equal(animations.length, beforePreview);
   await pointer(lyrics, "pointerdown", 180, 100);
   await pointer(lyrics, "pointerup", 181, 100);
   await click("#album-art");
@@ -1290,6 +1401,321 @@ test("React mobile cover swipes preview tracks until the cover or play button is
   assert.equal(player.app.getSnapshot().navigation.view, "lyrics");
   assert.equal(document.querySelector("#lyrics-title").textContent, "歌曲 c");
   assert.equal(title.textContent, "");
+});
+
+function recordAnimations(t) {
+  const original = HTMLElement.prototype.animate;
+  const animations = [];
+  HTMLElement.prototype.animate = function (frames) {
+    const animation = {
+      node: this,
+      frames,
+      cancelled: false,
+      cancel() {
+        this.cancelled = true;
+      },
+    };
+    animations.push(animation);
+    return animation;
+  };
+  t.after(() => {
+    if (original) HTMLElement.prototype.animate = original;
+    else delete HTMLElement.prototype.animate;
+  });
+  return animations;
+}
+
+test("mobile play stays local to the button and can cancel a pending load", async (t) => {
+  const requests = [];
+  const { app, audio } = await mount(t, {
+    mobile: true,
+    provider: {
+      getPlayback(_track, { signal }) {
+        return new Promise((resolve) => requests.push({ signal, resolve }));
+      },
+    },
+  });
+  const animations = recordAnimations(t);
+  const finishRequest = (index) => act(async () => requests[index].resolve("https://music.test/a"));
+
+  const play = await click("#play-toggle");
+  assert.equal(play.getAttribute("aria-label"), "取消加载");
+  assert.equal(play.dataset.wheelGlyph, "cancel");
+  assert.equal(app.getSnapshot().playback.desiredPlaying, true);
+  assert.equal(app.getSnapshot().playback.playing, false);
+  assert.deepEqual(
+    animations.map(({ node }) => node),
+    [play],
+  );
+
+  await click("#play-toggle");
+  assert.equal(requests[0].signal.aborted, true);
+  assert.equal(play.getAttribute("aria-label"), "播放");
+  await finishRequest(0);
+  assert.equal(audio.paused, true);
+  assert.deepEqual(
+    animations.map(({ node }) => node),
+    [play, play],
+  );
+
+  await click("#play-toggle");
+  await finishRequest(1);
+  assert.equal(app.getSnapshot().playback.playing, true);
+  assert.equal(play.dataset.wheelGlyph, "pause");
+  assert.deepEqual(
+    animations.map(({ node }) => node),
+    [play, play, play],
+  );
+  await act(async () => audio.dispatchEvent(new Event("waiting")));
+  await act(async () => audio.dispatchEvent(new Event("playing")));
+  assert.deepEqual(
+    animations.map(({ node }) => node),
+    [play, play, play],
+  );
+  await click("#play-toggle");
+  assert.equal(audio.paused, true);
+  assert.equal(play.dataset.wheelGlyph, "play");
+  assert.deepEqual(
+    animations.map(({ node }) => node),
+    [play, play, play, play],
+  );
+});
+
+test("mobile wheel follows both directions and cancels a seek from the center", async (t) => {
+  const { app, audio, reducedMotion, unmount, windowTracking } = await mount(t, { mobile: true });
+  const wheel = document.querySelector(".click-wheel");
+  const wave = wheel.querySelector(".wheel-wave");
+  const play = wheel.querySelector("#play-toggle");
+  const previous = wheel.querySelector("#previous-track");
+  const seek = document.querySelector("#seek");
+  wheel.getBoundingClientRect = () => ({ left: 10, top: 300, width: 240, height: 240 });
+  const at = (target, type, degrees, time, radius = 90) => {
+    const angle = (degrees / 180) * Math.PI;
+    return act(async () =>
+      dispatchPointer(
+        target,
+        type,
+        130 + radius * Math.cos(angle),
+        420 + radius * Math.sin(angle),
+        time,
+      ),
+    );
+  };
+  const preview = () => (parseFloat(seek.style.getPropertyValue("--progress")) / 100) * 200;
+  const seekTo = (time) => act(async () => app.seek(time));
+  const waveAngle = () =>
+    (parseFloat(wave.style.getPropertyValue("--wheel-wave-angle")) * 180) / Math.PI;
+  const waveStrength = () => Number(wave.style.getPropertyValue("--wheel-wave-strength"));
+
+  await click("#play-toggle");
+  await seekTo(80);
+  await at(previous, "pointerdown", 170, 100);
+  assert(previous.hasAttribute("data-wheel-pressed"));
+  await at(wheel, "pointermove", 172, 160);
+  assert(previous.hasAttribute("data-wheel-pressed"));
+  assert.equal(preview(), 80);
+  assert(!wave.hasAttribute("data-tracking"));
+
+  // Cross the atan2 seam and reverse without jumping a full turn.
+  await at(wheel, "pointermove", 190, 500);
+  assert(!previous.hasAttribute("data-wheel-pressed"));
+  assert(wave.hasAttribute("data-tracking"));
+  assert.equal(wheel.querySelectorAll(".wheel-wave").length, 1);
+  assert(Math.abs(waveAngle() + 170) < 0.01, "The wave centers on the touch angle");
+  assert.equal(wave.dataset.direction, "clockwise");
+  assert.equal(play.dataset.wheelGlyph, "scrub-cancel");
+  assert.equal(play.getAttribute("aria-label"), "取消调带");
+  const slowStrength = waveStrength();
+  const slow = preview() - 80;
+  assert(slow > 1 && slow < 3);
+  await at(wheel, "pointermove", 170, 900);
+  assert(Math.abs(waveAngle() - 170) < 0.01);
+  assert.equal(wave.dataset.direction, "counterclockwise");
+  assert(Math.abs(preview() - 80) < 0.15);
+  assert.equal(audio.currentTime, 80);
+  await at(wheel, "pointermove", 190, 930);
+  const fast = preview();
+  assert(fast - 80 > slow * 2);
+  assert(Math.abs(waveAngle() + 170) < 0.01);
+  assert.equal(wave.dataset.direction, "clockwise");
+  assert(waveStrength() > slowStrength);
+  await at(window, "pointerup", 190, 950);
+  assert(Math.abs(audio.currentTime - fast) < 0.0001);
+  assert(!wave.hasAttribute("data-tracking"));
+  assert.equal(play.dataset.wheelGlyph, "pause");
+
+  await act(async () =>
+    previous.dispatchEvent(
+      new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        detail: 1,
+      }),
+    ),
+  );
+  assert(Math.abs(audio.currentTime - fast) < 0.0001, "A drag must not restart the song");
+
+  reducedMotion.matches = true;
+  reducedMotion.dispatchEvent(new Event("change"));
+  await seekTo(199);
+  await at(previous, "pointerdown", 170, 1200);
+  await at(wheel, "pointermove", 200, 1210);
+  assert.equal(preview(), 200);
+  await at(wheel, "pointermove", 180, 1230);
+  assert(preview() < 200, "Reversing at the end moves immediately");
+  const beforeCenter = preview();
+  await at(wheel, "pointermove", 140, 1250, 10);
+  assert(play.hasAttribute("data-cancel-armed"));
+  assert.equal(preview(), 199, "Hovering over cancel shows the live playhead");
+  assert(!wave.hasAttribute("data-tracking"));
+  await at(wheel, "pointermove", 0, 1260);
+  assert(!play.hasAttribute("data-cancel-armed"));
+  assert(wave.hasAttribute("data-tracking"));
+  assert.equal(waveAngle(), 0);
+  assert.equal(preview(), beforeCenter, "Leaving the center resumes the same seek preview");
+  // Release in the center even if the final move was coalesced into pointerup.
+  await at(window, "pointerup", 0, 1270, 10);
+  assert.equal(preview(), 199);
+  assert.equal(audio.currentTime, 199);
+  assert.equal(play.dataset.wheelGlyph, "pause");
+  assert(!wave.hasAttribute("data-tracking"));
+  await act(async () => play.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })));
+  assert.equal(audio.paused, false);
+
+  await at(previous, "pointerdown", 170, 1300);
+  await at(wheel, "pointermove", 145, 1350);
+  assert(preview() < 199);
+  await at(window, "pointercancel", 145, 1360);
+  assert.equal(preview(), 199);
+  assert.equal(play.dataset.wheelGlyph, "pause");
+
+  await at(previous, "pointerdown", 170, 1400);
+  await at(wheel, "pointermove", 145, 1450);
+  assert(preview() < 199);
+  // Keyboard activation generates a click with detail 0.
+  await click("#play-toggle");
+  await at(window, "pointerup", 145, 1480);
+  assert.equal(preview(), 199);
+  assert.equal(audio.currentTime, 199);
+  assert.equal(audio.paused, false);
+  assert.equal(play.dataset.wheelGlyph, "pause");
+
+  await at(previous, "pointerdown", 170, 1500);
+  await at(wheel, "pointermove", 145, 1550);
+  assert(preview() < 199);
+  await act(async () => app.selectTrack(1));
+  await at(window, "pointerup", 145, 1580);
+  assert.equal(app.getSnapshot().playback.current.id, "b");
+  assert.equal(preview(), 0);
+  assert.equal(audio.currentTime, 0);
+  assert(!wave.hasAttribute("data-tracking"));
+  await unmount();
+  assert.equal(windowTracking.listeners.get("pointerup")?.size, 0);
+  assert.equal(windowTracking.listeners.get("pointercancel")?.size, 0);
+});
+
+test("mobile wheel keeps play available during a drag on a track with unknown duration", async (t) => {
+  const { audio } = await mount(t, { mobile: true, queue: [{ ...songs[0], duration: 0 }] });
+  const wheel = document.querySelector(".click-wheel");
+  const next = wheel.querySelector("#next-track");
+  const play = wheel.querySelector("#play-toggle");
+  wheel.getBoundingClientRect = () => ({ left: 10, top: 300, width: 240, height: 240 });
+
+  await pointer(next, "pointerdown", 220, 420);
+  await pointer(wheel, "pointermove", 180, 492);
+  assert(wheel.querySelector(".wheel-wave").hasAttribute("data-tracking"));
+  assert.equal(play.getAttribute("aria-label"), "播放");
+  await click("#play-toggle");
+  assert.equal(audio.paused, false);
+  await pointer(window, "pointerup", 180, 492);
+});
+
+test("mobile wheel haptics follow tactile presses and skip gestures that turn into drags", async (t) => {
+  const haptics = [];
+  const { unmount } = await mount(t, {
+    mobile: true,
+    android: { playback() {}, haptic: (effect) => haptics.push(effect) },
+  });
+  const wheel = document.querySelector(".click-wheel");
+  const next = wheel.querySelector("#next-track");
+  const play = wheel.querySelector("#play-toggle");
+  wheel.getBoundingClientRect = () => ({ left: 10, top: 300, width: 240, height: 240 });
+  const down = () => dispatchPointer(next, "pointerdown", 220, 420);
+  const up = () => dispatchPointer(next, "pointerup", 220, 420);
+  const waitForPress = () => new Promise((resolve) => setTimeout(resolve, 50));
+
+  await pointer(play, "pointerdown", 130, 420);
+  assert.deepEqual(haptics, ["play-key"]);
+  await pointer(play, "pointerup", 130, 420);
+  assert.deepEqual(haptics, ["play-key"]);
+
+  await act(async () => {
+    down();
+    assert.deepEqual(haptics, ["play-key"]);
+    up();
+  });
+  assert.deepEqual(haptics, ["play-key", "wheel-key"]);
+  await act(async () => {
+    down();
+    await waitForPress();
+    assert.deepEqual(haptics, ["play-key", "wheel-key", "wheel-key"]);
+    up();
+  });
+
+  await act(async () => {
+    down();
+    dispatchPointer(wheel, "pointermove", 180, 492);
+    dispatchPointer(wheel, "pointerup", 180, 492);
+    down();
+    dispatchPointer(next, "pointercancel", 220, 420);
+    next.disabled = true;
+    down();
+    up();
+    next.disabled = false;
+    await waitForPress();
+  });
+  assert.deepEqual(haptics, ["play-key", "wheel-key", "wheel-key"]);
+
+  await click("#next-track");
+  assert.deepEqual(haptics, ["play-key", "wheel-key", "wheel-key"]);
+  await act(async () => down());
+  await unmount();
+  await waitForPress();
+  assert.deepEqual(haptics, ["play-key", "wheel-key", "wheel-key"]);
+});
+
+test("mobile track skips keep feedback local and playback order honors reduced motion", async (t) => {
+  const player = await mount(t, { mobile: true });
+  const animations = recordAnimations(t);
+  const wheel = document.querySelector(".click-wheel");
+  const next = await click("#next-track");
+  assert.equal(player.app.getSnapshot().playback.current.id, "b");
+  const previous = await click("#previous-track");
+  assert.equal(player.app.getSnapshot().playback.current.id, "a");
+  assert.deepEqual(
+    animations.map(({ node }) => node),
+    [next, previous],
+  );
+
+  await click("#order-toggle");
+  await click("#order-toggle");
+  assert.equal(player.app.getSnapshot().playback.order, "repeatOne");
+  assert.equal(wheel.dataset.wheelCaption, "visible");
+  assert.equal(wheel.querySelector(".wheel-order-caption").textContent, "单曲循环");
+  assert.equal(
+    wheel.querySelector('[data-wheel-order][data-selected="true"]').dataset.wheelOrder,
+    "repeatOne",
+  );
+
+  player.reducedMotion.matches = true;
+  player.reducedMotion.dispatchEvent(new Event("change"));
+  assert(animations.every(({ cancelled }) => cancelled));
+  const count = animations.length;
+  await click("#next-track");
+  await click("#order-toggle");
+  assert.equal(player.app.getSnapshot().playback.current.id, "b");
+  assert.equal(player.app.getSnapshot().playback.order, "repeat");
+  assert.equal(animations.length, count);
 });
 
 test("React search consumes submitted debounces and reissues a cancelled query after input returns to it", async (t) => {

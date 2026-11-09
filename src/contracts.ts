@@ -179,7 +179,7 @@ export interface AppSnapshot {
     more: boolean;
   };
   lyrics: LyricLine[];
-  notice: { message: string; retry: (() => unknown) | null } | null;
+  notice: { kind: "info" | "error"; message: string; retry: (() => unknown) | null } | null;
   announcement: string;
 }
 /** Explicit actions keep React and native event handlers independent of implementation. */
@@ -230,5 +230,6 @@ export interface MusicApplication {
   removeTrack(index: number): void;
   loadMore(options?: { quiet?: boolean }): Promise<boolean>;
   showLyrics(): void;
+  setInlineLyrics(visible: boolean): void;
   dismissNotice(): void;
 }

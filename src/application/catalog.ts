@@ -6,7 +6,7 @@ import { ApplicationStore, errorMessage } from "./store.js";
 
 interface CatalogEffects {
   save(): void;
-  notice(message: string, retry?: () => unknown): void;
+  reportError(message: string, retry: () => unknown): void;
 }
 interface AlbumRequest {
   artist: Artist;
@@ -34,6 +34,7 @@ export class CatalogController {
   private lyricVersion = 0;
   private lyricAbort: AbortController | null = null;
   private lyricId: string | null = null;
+  private inlineLyrics = false;
   constructor(
     private store: ApplicationStore,
     private provider: ApplicationProvider,
@@ -103,7 +104,7 @@ export class CatalogController {
         !controller.signal.aborted &&
         this.navigation.isPageActive("search")
       )
-        this.effects.notice(errorMessage(error), () => this.search(query));
+        this.effects.reportError(errorMessage(error), () => this.search(query));
     } finally {
       if (version === this.searchVersion) {
         this.store.state.requests.search = false;
@@ -185,7 +186,7 @@ export class CatalogController {
         : "没有找到歌曲";
     } catch (error) {
       if (version === this.trackSearchVersion && !controller.signal.aborted)
-        this.effects.notice(errorMessage(error), () => this.loadMoreTracks());
+        this.effects.reportError(errorMessage(error), () => this.loadMoreTracks());
     } finally {
       if (version === this.trackSearchVersion) {
         state.requests.trackSearch = false;
@@ -249,7 +250,7 @@ export class CatalogController {
       this.store.state.catalog.albums = [...this.store.state.catalog.albums, ...added];
     } catch (error) {
       if (request === this.albumRequest && !request.controller.signal.aborted)
-        this.effects.notice(errorMessage(error), () => this.loadMoreAlbums());
+        this.effects.reportError(errorMessage(error), () => this.loadMoreAlbums());
     } finally {
       request.pending = false;
       if (request === this.albumRequest && !request.controller.signal.aborted) {
@@ -317,7 +318,7 @@ export class CatalogController {
       this.store.state.catalog.hasMoreAlbumTracks = result.hasMore;
     } catch (error) {
       if (request === this.albumTrackRequest && !request.controller.signal.aborted)
-        this.effects.notice(errorMessage(error), () => this.loadMoreAlbumTracks());
+        this.effects.reportError(errorMessage(error), () => this.loadMoreAlbumTracks());
     } finally {
       request.pending = false;
       if (request === this.albumTrackRequest && !request.controller.signal.aborted) {
@@ -347,7 +348,18 @@ export class CatalogController {
     this.lyricId = null;
     this.store.state.lyrics = [];
     this.store.state.requests.lyrics = false;
-    if (this.store.state.navigation.view === "lyrics") void this.loadLyrics();
+    if (this.lyricsVisible()) void this.loadLyrics();
+  }
+  setInlineLyrics(visible: boolean): void {
+    this.inlineLyrics = visible;
+    if (visible) void this.loadLyrics();
+  }
+  private lyricsVisible(): boolean {
+    const { navigation, auth } = this.store.state;
+    return (
+      navigation.view === "lyrics" ||
+      (this.inlineLyrics && navigation.view === "player" && auth.state === "ready")
+    );
   }
   showLyrics(): void {
     if (!this.store.state.playback.current) return;
@@ -356,7 +368,12 @@ export class CatalogController {
   }
   async loadLyrics(): Promise<void> {
     const track = this.store.state.playback.current;
-    if (!track || this.store.state.navigation.view !== "lyrics" || this.lyricId === track.id)
+    if (
+      !track ||
+      !this.lyricsVisible() ||
+      this.lyricId === track.id ||
+      this.store.state.requests.lyrics
+    )
       return;
     const version = ++this.lyricVersion;
     this.lyricAbort?.abort();
@@ -374,7 +391,7 @@ export class CatalogController {
       this.lyricId = track.id;
     } catch (error) {
       if (version === this.lyricVersion && this.store.state.playback.current?.id === track.id)
-        this.effects.notice(errorMessage(error), () => this.loadLyrics());
+        this.effects.reportError(errorMessage(error), () => this.loadLyrics());
     } finally {
       if (version === this.lyricVersion) {
         this.store.state.requests.lyrics = false;

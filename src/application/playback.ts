@@ -8,7 +8,8 @@ import { errorMessage } from "./store.js";
 
 interface PlaybackEffects {
   save(): void;
-  notice(message: string, retry?: () => unknown): void;
+  notice(message: string): void;
+  reportError(message: string, retry: () => unknown): void;
   currentChanged(): void;
   now(): number;
 }
@@ -63,7 +64,7 @@ export class PlaybackController {
       onEnded: () => {
         void this.advance("next", true);
       },
-      onError: (error) => this.effects.notice(error.message, () => this.play()),
+      onError: (error) => this.effects.reportError(error.message, () => this.play()),
     });
   }
   publish(): void {
@@ -123,7 +124,6 @@ export class PlaybackController {
   }
   async loadCurrent({ autoplay = false, elapsed = 0 } = {}): Promise<void> {
     this.trackVersion++;
-    this.store.state.notice = null;
     this.session.elapsed = elapsed;
     this.publish();
     this.effects.currentChanged();
@@ -184,7 +184,7 @@ export class PlaybackController {
       this.store.state.announcement = `${type === "liked" ? "喜欢的音乐" : type === "radio" ? "推荐电台" : "歌手电台"}，${queue.length} 首歌曲`;
     } catch (error) {
       if (version === this.sourceVersion && !signal.aborted)
-        this.effects.notice(errorMessage(error), () =>
+        this.effects.reportError(errorMessage(error), () =>
           this.switchSource(type, resource, { autoplay, trackId }),
         );
     } finally {
@@ -264,7 +264,7 @@ export class PlaybackController {
         throw new Error("歌曲列表分页未前进，请重试");
       } catch (error) {
         if (version === this.queueVersion && !controller.signal.aborted)
-          this.effects.notice(errorMessage(error), () => this.loadMore());
+          this.effects.reportError(errorMessage(error), () => this.loadMore());
         return false;
       }
     };
@@ -285,10 +285,7 @@ export class PlaybackController {
   togglePlay(): void {
     if (!this.session.current) return;
     if (this.transport.desiredPlaying || this.session.playing) this.pause();
-    else {
-      this.store.state.notice = null;
-      void this.play();
-    }
+    else void this.play();
   }
   async play(): Promise<void> {
     await this.transport.play();
