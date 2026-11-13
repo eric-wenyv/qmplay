@@ -676,6 +676,37 @@ test("React restores an authenticated paused session and navigation preserves ac
 });
 
 for (const mobile of [false, true]) {
+  test(`player singer name opens the artist page (${mobile ? "mobile" : "desktop"})`, async (t) => {
+    const player = await mount(t, {
+      mobile,
+      queue: [
+        {
+          id: "a",
+          title: "歌曲 a",
+          artist: "周杰伦 / 费玉清",
+          artistId: "jay",
+          artists: [
+            { id: "jay", name: "周杰伦" },
+            { id: "faye", name: "费玉清" },
+          ],
+          duration: 200,
+        },
+      ],
+    });
+    assert.equal(document.querySelector("#track-singer").textContent, "周杰伦 / 费玉清");
+    assert(document.querySelector('#track-singer [data-artist="jay"]'));
+    assert(document.querySelector('#track-singer [data-artist="faye"]'));
+    const currentId = player.app.getSnapshot().playback.current.id;
+    await click('#track-singer [data-artist="jay"]');
+    assert.equal(document.querySelector("#albums-view").hidden, false);
+    assert.equal(document.querySelector("#artist-summary-name").textContent, "周杰伦");
+    assert.equal(player.app.getSnapshot().catalog.artist.id, "jay");
+    assert.equal(player.app.getSnapshot().navigation.view, "albums");
+    assert.equal(player.app.getSnapshot().playback.current.id, currentId);
+  });
+}
+
+for (const mobile of [false, true]) {
   test(`React shows the saved player throughout background login checks (${mobile ? "mobile" : "desktop"})`, async (t) => {
     let resolveStatus, resolveFavorites;
     const status = new Promise((resolve) => (resolveStatus = resolve));

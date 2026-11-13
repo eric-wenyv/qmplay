@@ -9,12 +9,17 @@ export interface Resource {
   group?: string;
   publishDate?: string;
 }
+export interface TrackArtist {
+  id: string;
+  name: string;
+}
 export interface Track {
   id: string;
   title: string;
   duration?: number;
   artist?: string;
   artistId?: string;
+  artists?: TrackArtist[];
   album?: string;
   albumId?: string;
   coverUrl?: string;

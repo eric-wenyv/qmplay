@@ -502,6 +502,24 @@ h1 {
   margin: 0;
   color: inherit;
 }
+.track-singer-link {
+  appearance: none;
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.track-singer-link:hover,
+.track-singer-link:focus-visible {
+  color: #ffffffd6;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .like-button {
   width: 34px;
   height: 34px;

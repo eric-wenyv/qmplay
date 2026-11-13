@@ -1,12 +1,21 @@
-import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
-import { artworkUrl } from "../api.js";
+import { Fragment, memo, useEffect, useRef, useState, type CSSProperties } from "react";
+import { artworkUrl, artistsOnTrack } from "../api.js";
 import { formatTime, orderLabels, orderModes } from "../player.js";
-import type { AppSnapshot, MusicApplication, PlayOrder, View } from "../contracts.js";
+import type { AppSnapshot, Artist, MusicApplication, PlayOrder, View } from "../contracts.js";
 import { CoverFlow } from "./CoverFlow.js";
 import { Icon } from "./Icon.js";
 import { describePage } from "./Navigation.js";
 import { useArtworkTheme } from "./useArtworkTheme.js";
 import { useMobileWheelMotion } from "./useMobileWheelMotion.js";
+
+function artistFromName(id: string, name: string): Artist {
+  return {
+    id,
+    name,
+    followerCount: null,
+    avatarUrl: `https://y.gtimg.cn/music/photo_new/T001R150x150M000${encodeURIComponent(id)}.jpg`,
+  };
+}
 
 export function PlayerView({
   app,
@@ -31,6 +40,7 @@ export function PlayerView({
   const cover = artworkUrl(current?.coverUrl || "");
   const liked = snapshot.library.liked.some((track) => track.id === current?.id);
   const busy = Boolean(current && snapshot.library.busyIds.includes(current.id));
+  const singers = artistsOnTrack(current);
   useEffect(() => {
     if (image.current) theme(image.current);
   }, [cover, mobile, theme]);
@@ -96,7 +106,30 @@ export function PlayerView({
           <div className="track-copy">
             <h1 id="track-title">{current?.title || "qmplay"}</h1>
             <p id="track-artist">
-              <span id="track-singer">{current?.artist || ""}</span>
+              <span id="track-singer">
+                {singers.length
+                  ? singers.map((singer, index) => (
+                      <Fragment key={`${singer.id}:${singer.name}:${index}`}>
+                        {index > 0 ? " / " : null}
+                        {singer.id ? (
+                          <button
+                            type="button"
+                            className="track-singer-link"
+                            data-artist={singer.id}
+                            aria-label={`查看 ${singer.name} 的专辑`}
+                            onClick={() =>
+                              void app.showArtistAlbums(artistFromName(singer.id, singer.name))
+                            }
+                          >
+                            {singer.name}
+                          </button>
+                        ) : (
+                          singer.name
+                        )}
+                      </Fragment>
+                    ))
+                  : current?.artist || ""}
+              </span>
               <span id="track-album">
                 {current?.album ? `${current.artist ? " · " : ""}${current.album}` : ""}
               </span>

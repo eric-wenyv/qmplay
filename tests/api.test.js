@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   QQMusicProvider,
+  artistsOnTrack,
   normalizeTrack,
   normalizeTracks,
   normalizeBaseUrl,
@@ -42,8 +43,25 @@ test("normalizes both legacy and current song formats; rejects unusable records 
   assert.equal(value.mediaId, "media");
   assert.equal(value.vip, true);
   assert.equal(value.duration, 269);
+  assert.equal(value.artist, "周杰伦");
+  assert.equal(value.artistId, "jay");
+  assert.deepEqual(value.artists, [{ id: "jay", name: "周杰伦" }]);
   assert.deepEqual(value.qualities, ["320", "128"]);
   assert.match(value.coverUrl, /album/);
+  const duet = normalizeTrack({
+    ...track,
+    mid: "mid-duet",
+    singer: [
+      { mid: "jay", name: "周杰伦" },
+      { mid: "faye", name: "费玉清" },
+    ],
+  });
+  assert.equal(duet.artist, "周杰伦 / 费玉清");
+  assert.equal(duet.artistId, "jay");
+  assert.deepEqual(duet.artists, [
+    { id: "jay", name: "周杰伦" },
+    { id: "faye", name: "费玉清" },
+  ]);
   assert.equal(
     normalizeTrack({
       songmid: "old",
@@ -55,6 +73,40 @@ test("normalizes both legacy and current song formats; rejects unusable records 
   );
   assert.equal(normalizeTrack({ name: "no mid" }), null);
   assert.equal(normalizeTracks([track, { musicData: track }, {}]).length, 1);
+});
+test("artistsOnTrack prefers saved singers and falls back to artistId for the first name", () => {
+  assert.deepEqual(
+    artistsOnTrack({
+      id: "song",
+      title: "歌",
+      artist: "周杰伦 / 费玉清",
+      artistId: "jay",
+    }),
+    [
+      { id: "jay", name: "周杰伦" },
+      { id: "", name: "费玉清" },
+    ],
+  );
+  assert.deepEqual(
+    artistsOnTrack({
+      id: "song",
+      title: "歌",
+      artist: "旧数据",
+      artistId: "jay",
+      artists: [
+        { id: "jay", name: "周杰伦" },
+        { id: "faye", name: "费玉清" },
+      ],
+    }),
+    [
+      { id: "jay", name: "周杰伦" },
+      { id: "faye", name: "费玉清" },
+    ],
+  );
+  assert.deepEqual(artistsOnTrack({ id: "song", title: "歌", artist: "未知歌手" }), [
+    { id: "", name: "未知歌手" },
+  ]);
+  assert.deepEqual(artistsOnTrack(null), []);
 });
 test("artist searches use smartbox and blank queries never fetch popular singers", async () => {
   const urls = [];

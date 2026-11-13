@@ -10,6 +10,7 @@ import type {
   RadioStation,
   RequestOptions,
   Track,
+  TrackArtist,
   User,
 } from "./contracts.js";
 
@@ -80,6 +81,12 @@ export function normalizeTrack(value: unknown): Track | null {
         .filter(Boolean)
         .join(" / ") || "未知歌手",
     artistId: String(singers[0]?.mid || ""),
+    artists: singers
+      .map((singer) => ({
+        id: String(singer.mid || ""),
+        name: String(singer.name || singer.title || ""),
+      }))
+      .filter((singer) => singer.name),
     album: String(at(song, "album", "name") || song.albumname || ""),
     albumId: String(albumId || ""),
     duration: Math.max(0, Number(song.interval) || 0),
@@ -103,6 +110,21 @@ export function normalizeTracks(value: unknown): Track[] {
         .map((track) => [track.id, track]),
     ).values(),
   ];
+}
+
+export function artistsOnTrack(track: Track | null | undefined): TrackArtist[] {
+  if (!track) return [];
+  if (Array.isArray(track.artists) && track.artists.length)
+    return track.artists.filter((artist) => artist.name);
+  const names = String(track.artist || "")
+    .split(" / ")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (!names.length) return [];
+  return names.map((name, index) => ({
+    id: index === 0 ? String(track.artistId || "") : "",
+    name,
+  }));
 }
 export function normalizeArtist(value: unknown): Artist | null {
   const singer = object(value),
