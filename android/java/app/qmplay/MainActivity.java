@@ -146,6 +146,7 @@ public class MainActivity extends Activity {
                 case "play-key":
                     feedback = HapticFeedbackConstants.VIRTUAL_KEY;
                     break;
+                case "wheel-tick":
                 case "cover-step":
                     feedback = Build.VERSION.SDK_INT >= 34
                         ? HapticFeedbackConstants.SEGMENT_FREQUENT_TICK : HapticFeedbackConstants.CLOCK_TICK;
@@ -158,8 +159,9 @@ public class MainActivity extends Activity {
                     web.performHapticFeedback(feedback);
             });
         }
-        @JavascriptInterface public void playback(String title, String artist, boolean playing) {
-            MusicService.updatePlayback(title, artist, playing);
+        @JavascriptInterface public void playback(String id, String title, String artist, String album,
+                String artwork, boolean playing, long position, long duration) {
+            MusicService.updatePlayback(id, title, artist, album, artwork, playing, position, duration);
         }
         @JavascriptInterface public void minimize() { runOnUiThread(() -> moveTaskToBack(true)); }
         @JavascriptInterface public boolean openQqLogin(String url) {
@@ -168,11 +170,21 @@ public class MainActivity extends Activity {
     }
 
     static void dispatch(String action) {
+        if (!java.util.Arrays.asList("play", "pause", "previous", "next").contains(action)) return;
+        dispatchMedia("'" + action + "'");
+    }
+
+    static void seek(long position) {
+        if (position >= 0) dispatchMedia(Long.toString(position));
+    }
+
+    private static void dispatchMedia(String detail) {
         MainActivity activity = current.get();
         if (activity == null || activity.web == null) return;
-        if (!java.util.Arrays.asList("play", "pause", "previous", "next").contains(action)) return;
-        activity.runOnUiThread(() -> activity.web.evaluateJavascript(
-            "window.dispatchEvent(new CustomEvent('qmplay-media',{detail:'" + action + "'}))", null));
+        activity.runOnUiThread(() -> {
+            if (!activity.isDestroyed()) activity.web.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('qmplay-media',{detail:" + detail + "}))", null);
+        });
     }
 
     private void handleBack() {

@@ -847,6 +847,44 @@ test("React applies Android's top inset and updates it when the window changes",
   assert.equal(padding(), "");
 });
 
+test("Android media session receives the current track and handles system playback controls", async (t) => {
+  const cover = "https://y.gtimg.cn/cover.jpg";
+  const playback = [];
+  const player = await mount(t, {
+    mobile: true,
+    queue: [{ ...songs[0], album: "专辑", coverUrl: cover }, songs[1]],
+    android: { playback: (...state) => playback.push(state) },
+  });
+  const dispatch = async (detail) => {
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("qmplay-media", { detail }));
+      await tick();
+    });
+  };
+
+  await dispatch("play");
+  assert.deepEqual(playback.at(-1), [
+    "a",
+    "歌曲 a",
+    "歌手",
+    "专辑",
+    `./art?url=${encodeURIComponent(cover)}`,
+    true,
+    12000,
+    200000,
+  ]);
+  await dispatch(42350);
+  assert.equal(player.audio.currentTime, 42.35);
+  assert.equal(playback.at(-1)[6], 42350);
+  await dispatch(-1);
+  assert.equal(player.audio.currentTime, 42.35);
+
+  await dispatch("next");
+  assert.deepEqual(playback.at(-1), ["b", "歌曲 b", "歌手", "", "", true, 0, 200000]);
+  await dispatch("pause");
+  assert.equal(playback.at(-1)[5], false);
+});
+
 test("mobile login shows a dedicated button and restores the player after QQ confirmation", async (t) => {
   const login = { url: "https://txz.qq.com/p", id: "mobile-login", expiresAt: Date.now() + 60000 };
   const opens = [];
@@ -1661,7 +1699,7 @@ test("mobile wheel keeps play available during a drag on a track with unknown du
   await pointer(window, "pointerup", 180, 492);
 });
 
-test("mobile wheel haptics follow tactile presses and skip gestures that turn into drags", async (t) => {
+test("mobile wheel key haptics follow tactile presses and stop when a drag takes over", async (t) => {
   const haptics = [];
   const { unmount } = await mount(t, {
     mobile: true,
@@ -1695,8 +1733,8 @@ test("mobile wheel haptics follow tactile presses and skip gestures that turn in
 
   await act(async () => {
     down();
-    dispatchPointer(wheel, "pointermove", 180, 492);
-    dispatchPointer(wheel, "pointerup", 180, 492);
+    dispatchPointer(wheel, "pointermove", 218, 434);
+    dispatchPointer(wheel, "pointerup", 218, 434);
     down();
     dispatchPointer(next, "pointercancel", 220, 420);
     next.disabled = true;
@@ -1713,6 +1751,60 @@ test("mobile wheel haptics follow tactile presses and skip gestures that turn in
   await unmount();
   await waitForPress();
   assert.deepEqual(haptics, ["play-key", "wheel-key", "wheel-key"]);
+});
+
+test("mobile wheel gives spaced haptic ticks as a finger turns the ring", async (t) => {
+  const haptics = [];
+  await mount(t, {
+    mobile: true,
+    android: { playback() {}, haptic: (effect) => haptics.push(effect) },
+  });
+  const wheel = document.querySelector(".click-wheel");
+  const previous = wheel.querySelector("#previous-track");
+  wheel.getBoundingClientRect = () => ({ left: 10, top: 300, width: 240, height: 240 });
+  const at = (target, type, degrees, time, radius = 90) => {
+    const angle = (degrees / 180) * Math.PI;
+    dispatchPointer(
+      target,
+      type,
+      130 + radius * Math.cos(angle),
+      420 + radius * Math.sin(angle),
+      time,
+    );
+  };
+  const move = (degrees, time, radius) => at(wheel, "pointermove", degrees, time, radius);
+
+  await click("#play-toggle");
+  await act(async () => {
+    at(previous, "pointerdown", 170, 100);
+    move(173, 110);
+    move(179, 125);
+    assert.equal(haptics.length, 0);
+    move(184, 160); // Cross the angle seam and complete the first tick.
+    assert.equal(haptics.length, 1);
+    move(184, 220);
+    move(181, 240);
+    assert.equal(haptics.length, 1);
+    move(168, 300);
+    assert.equal(haptics.length, 2);
+
+    move(80, 315); // Cross several ticks within the minimum interval.
+    move(80, 375);
+    assert.equal(haptics.length, 2);
+    move(65, 390);
+    assert.equal(haptics.length, 3);
+
+    move(60, 450, 10);
+    move(5, 510, 135);
+    move(0, 570);
+    move(-9, 630);
+    assert.equal(haptics.length, 3);
+    move(-15, 690);
+    assert.equal(haptics.length, 4);
+    at(window, "pointerup", -50, 750);
+    move(-90, 810);
+  });
+  assert.deepEqual(haptics, Array(4).fill("wheel-tick"));
 });
 
 test("mobile track skips keep feedback local and playback order honors reduced motion", async (t) => {

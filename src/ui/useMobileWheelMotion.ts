@@ -6,6 +6,8 @@ const reduceMotionQuery = "(prefers-reduced-motion: reduce)";
 const out = "cubic-bezier(0.2, 0.65, 0.3, 1)";
 const touchSlop = 7;
 const sectorHapticDelay = 32;
+const wheelTickAngle = (12 * Math.PI) / 180;
+const wheelTickInterval = 50;
 
 function positionWave(wave: HTMLDivElement, angle: number, delta: number, speed: number) {
   wave.style.setProperty("--wheel-wave-angle", `${angle}rad`);
@@ -85,6 +87,9 @@ export function useMobileWheelMotion({
       pendingAngle: number;
       stamp: number;
       velocity: number;
+      tactile: boolean;
+      tickAngle: number;
+      lastTick: number;
       scrubbing: boolean;
       overCancel: boolean;
       trackId: string | undefined;
@@ -143,6 +148,9 @@ export function useMobileWheelMotion({
         pendingAngle: 0,
         stamp: event.timeStamp,
         velocity: 0,
+        tactile: event.pointerType === "touch" || event.pointerType === "pen",
+        tickAngle: 0,
+        lastTick: -Infinity,
         scrubbing: false,
         overCancel: false,
         trackId: playback.current?.id,
@@ -152,7 +160,7 @@ export function useMobileWheelMotion({
       };
       if (!button || button.disabled) return;
       button.dataset.wheelPressed = "";
-      if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
+      if (!drag.tactile) return;
       if (button.id === "play-toggle") {
         playHaptic("play-key");
       } else {
@@ -189,6 +197,7 @@ export function useMobileWheelMotion({
         drag.angle = null;
         drag.velocity = 0;
         drag.pendingAngle = 0;
+        drag.tickAngle = 0;
         ripple.removeAttribute("data-tracking");
         return;
       }
@@ -220,6 +229,17 @@ export function useMobileWheelMotion({
       const delta = drag.pendingAngle || step;
       drag.pendingAngle = 0;
       positionWave(ripple, angle, delta, 0.7 * speed + 0.3 * previousSpeed);
+      if (drag.tactile && event.type === "pointermove") {
+        drag.tickAngle += delta;
+        if (Math.abs(drag.tickAngle) >= wheelTickAngle) {
+          // Consume crossed ticks even when moving too fast to play each one.
+          drag.tickAngle %= wheelTickAngle;
+          if (event.timeStamp - drag.lastTick >= wheelTickInterval) {
+            drag.lastTick = event.timeStamp;
+            playHaptic("wheel-tick");
+          }
+        }
+      }
       if (!drag.duration || delta === 0) return;
       drag.time = Math.max(0, Math.min(drag.duration, drag.time + delta * 5 * gain));
       setScrubTime(drag.time);

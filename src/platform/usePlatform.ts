@@ -42,6 +42,8 @@ export function usePlatform(app: MusicApplication, snapshot: AppSnapshot) {
       if (action === "play") void app.play();
       else if (action === "pause") app.pause();
       else if (action === "next" || action === "previous") void app.advance(action);
+      else if (typeof action === "number" && Number.isFinite(action) && action >= 0)
+        app.seek(action / 1000);
     };
     const back = () => {
       const state = app.getSnapshot().navigation;
@@ -148,14 +150,32 @@ export function usePlatform(app: MusicApplication, snapshot: AppSnapshot) {
   useEffect(() => {
     if (navigator.mediaSession)
       navigator.mediaSession.playbackState = playing ? "playing" : "paused";
-    window.qmplayAndroid?.playback(
-      current?.title || "qmplay",
-      current?.artist || "音乐播放器",
-      playing,
-    );
-  }, [current?.title, current?.artist, playing]);
+  }, [playing]);
+  const positionMs = Number.isFinite(elapsed) && elapsed > 0 ? Math.round(elapsed * 1000) : 0;
+  const duration = current?.duration || 0;
+  const durationMs = Number.isFinite(duration) && duration > 0 ? Math.round(duration * 1000) : 0;
   useEffect(() => {
-    const duration = current?.duration || 0;
+    window.qmplayAndroid?.playback(
+      current?.id || "",
+      current?.title || "",
+      current?.artist || "",
+      current?.album || "",
+      current?.coverUrl ? artworkUrl(current.coverUrl) : "",
+      playing,
+      positionMs,
+      durationMs,
+    );
+  }, [
+    current?.id,
+    current?.title,
+    current?.artist,
+    current?.album,
+    current?.coverUrl,
+    playing,
+    positionMs,
+    durationMs,
+  ]);
+  useEffect(() => {
     if (navigator.mediaSession && Number.isFinite(duration) && duration > 0) {
       try {
         navigator.mediaSession.setPositionState({
@@ -167,5 +187,5 @@ export function usePlatform(app: MusicApplication, snapshot: AppSnapshot) {
         /* Unsupported position reporting. */
       }
     }
-  }, [elapsed, current?.duration]);
+  }, [elapsed, duration]);
 }
