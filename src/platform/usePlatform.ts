@@ -49,7 +49,8 @@ export function usePlatform(app: MusicApplication, snapshot: AppSnapshot) {
       const state = app.getSnapshot().navigation;
       if (state.menuOpen) app.setMenu(false);
       else if (state.queueOpen) app.closeQueue();
-      else if (state.view !== "player") app.returnToPlayer();
+      else if (state.mobile && state.view !== "browse") void app.showRadio();
+      else if (!state.mobile && state.view !== "player") app.returnToPlayer();
       else window.qmplayAndroid?.minimize();
     };
     window.addEventListener("focus", refresh);

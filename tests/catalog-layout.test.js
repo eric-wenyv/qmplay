@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile, spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -42,7 +42,7 @@ async function bundledFixtures() {
             advance: (direction) => actions.push(direction),
             togglePlay: () => actions.push("play"),
             cycleOrder: () => actions.push("order"),
-            toggleMobileHome: () => actions.push("home"),
+            openQueue: () => actions.push("queue"),
           };
           const root = createRoot(document.querySelector("#controls-root"));
           const snapshot = { navigation: { mobile: true, view: "player" }, playback: {
@@ -224,7 +224,7 @@ test(
           const contentLeft = stage.left + parseFloat(stageStyle.paddingLeft);
           const contentRight = stage.right - parseFloat(stageStyle.paddingRight);
           const field = search?.getBoundingClientRect();
-          const actionButton = list.querySelector("[data-next-track], [data-remove='1']");
+          const actionButton = list.querySelector("[data-next-track], [data-more-track], [data-remove='1']");
           const action = actionButton?.getBoundingClientRect();
           const row = actionButton?.parentElement;
           const primary = row?.querySelector(".artist-row, .queue-row")?.getBoundingClientRect();
@@ -484,7 +484,7 @@ test(
           const heightLimit = (bounds.height - 28) / bounds.width;
           const sideShare = next.getBoundingClientRect().width / currentBounds.width;
           const centered = Math.abs(center(current) - center(flow)) < 1;
-          const depth = (node) => Number(win.getComputedStyle(node.parentElement).zIndex);
+          const depth = (node) => Number(win.getComputedStyle(node.closest(".cover-flow-card")).zIndex);
           const gap = (other, direction) => {
             const outgoing = current.getBoundingClientRect();
             const incoming = other.getBoundingClientRect();
@@ -655,7 +655,7 @@ test(
     );
     assert(result.outside, JSON.stringify(result));
     assert(result.centerRatio > 1 / 3 && result.centerRatio < 0.36, JSON.stringify(result));
-    assert.deepEqual(result.actions, ["home", "next", "order", "previous", "play"]);
+    assert.deepEqual(result.actions, ["queue", "next", "order", "previous", "play"]);
     for (const { id, ...checks } of result.feedback) {
       assert.deepEqual(
         checks,
@@ -686,7 +686,7 @@ for (const reducedMotion of [false, true]) {
       t.after(() => rm(directory, { recursive: true, force: true }));
       const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
       const script = await bundledFixtures();
-      const frames = [false, true].map((mobile) => {
+      const frames = [false].map((mobile) => {
         const srcDoc = `<!doctype html><html><head><style>${css}</style></head>
             <body class="${mobile ? "" : "desktop"}"><main class="player">
               <div id="navigation-root" style="display:contents"></div><section class="main-stage">
@@ -722,14 +722,7 @@ for (const reducedMotion of [false, true]) {
               const control = doc.querySelector(".mode-control"), toggle = doc.querySelector("#mode-toggle");
               const frameNode = doc.querySelector(".mode-frame");
               const mobile = frame.title === "mobile";
-              const verify = doc.querySelector("#verify-login").getBoundingClientRect();
-              const neighbor = (mobile ? toggle : doc.querySelector("#minimize-window")).getBoundingClientRect();
-              const close = doc.querySelector("#close-window").getBoundingClientRect();
-              const playerBounds = doc.querySelector(".player").getBoundingClientRect();
-              const loginAligned = verify.width === neighbor.width && verify.height === neighbor.height &&
-                verify.top === neighbor.top && (mobile
-                  ? verify.left - playerBounds.left === playerBounds.right - neighbor.right
-                  : neighbor.left - verify.right === close.left - neighbor.right);
+              const loginAligned = !doc.querySelector("#verify-login");
               const selectedDistance = mobile ? 48 : 96, chosenDistance = mobile ? 96 : 48;
               const fullSize = 196;
               const read = () => {
@@ -976,3 +969,197 @@ for (const reducedMotion of [false, true]) {
     },
   );
 }
+
+test(
+  "mobile glass home and player fit narrow screens, share artwork and reverse the cover transition",
+  {
+    skip: !browser && "Install Chrome/Chromium for mobile layout checks",
+    timeout: 40000,
+  },
+  async (t) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "qmplay-mobile-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    await mkdir(path.join(directory, "assets"));
+    await copyFile(
+      new URL("../assets/coast.jpg", import.meta.url),
+      path.join(directory, "assets/coast.jpg"),
+    );
+    const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+    const { outputFiles } = await build({
+      entryPoints: [fileURLToPath(new URL("./fixtures/mobile.tsx", import.meta.url))],
+      bundle: true,
+      write: false,
+      platform: "browser",
+      format: "iife",
+      jsx: "automatic",
+      minify: true,
+      define: { "process.env.NODE_ENV": '"production"' },
+      logLevel: "silent",
+    });
+    const frames = [
+      [320, 568],
+      [390, 844],
+      [430, 932],
+    ].map(([width, height]) =>
+      renderToStaticMarkup(
+        createElement("iframe", {
+          title: `${width}x${height}`,
+          width,
+          height,
+          srcDoc: `<!doctype html><meta charset="utf-8"><style>${css}</style><div id="root"></div><script>${outputFiles[0].text}</script>`,
+        }),
+      ),
+    );
+    const results = await measureLayout(
+      directory,
+      `<!doctype html>${frames.join("")}<pre id="layout-results"></pre><script>
+  addEventListener("unhandledrejection", event => {
+    document.querySelector("#layout-results").textContent = JSON.stringify([
+      {name:"browser", completed:false, error:String(event.reason?.stack || event.reason)}
+    ]);
+  });
+  addEventListener("load", async () => {
+    const results = await Promise.all([...document.querySelectorAll("iframe")].map(async frame => {
+      const win = frame.contentWindow, doc = frame.contentDocument;
+      const wait = () => new Promise(resolve => win.setTimeout(resolve, 30));
+      await wait();
+      const finish = () => doc.getAnimations().filter(a => a.effect.getTiming().iterations !== Infinity).forEach(a => a.finish());
+      const pointer = (type, y) => {
+        const flow = doc.querySelector(".cover-flow");
+        // Synthetic events have no native active pointer to capture.
+        flow.setPointerCapture = () => {};
+        win.mobileTest.flush(() => flow.dispatchEvent(new win.PointerEvent(type, {
+          bubbles:true, cancelable:true, pointerId:9, isPrimary:true, pointerType:"touch", button:0, clientX:160, clientY:y,
+        })));
+      };
+      const dismiss = () => { pointer("pointerdown", 100); pointer("pointermove", 240); pointer("pointerup", 240); };
+      const bounds = selector => doc.querySelector(selector).getBoundingClientRect();
+      const dock = bounds(".mobile-dock"), search = bounds("#track-search");
+      const home = doc.querySelector("#radio-results");
+      const checks = {
+        name: frame.title,
+        fits: doc.body.scrollWidth === win.innerWidth && dock.left >= 0 && dock.right <= win.innerWidth && dock.bottom <= win.innerHeight,
+        searchPill: win.getComputedStyle(doc.querySelector("#track-search")).borderRadius === "30px" && search.top >= 0,
+        glass: win.getComputedStyle(doc.querySelector(".mobile-dock")).backdropFilter.includes("blur"),
+        minimal: !doc.querySelector("#mode-toggle, #verify-login, #search-view") && doc.querySelectorAll(".station-card").length === 2,
+      };
+      win.mobileTest.flush(() => { home.scrollTop = 230; home.dispatchEvent(new win.Event("scroll")); });
+      await wait();
+      checks.collapse = doc.querySelector(".station-shelf").dataset.collapsed === "true";
+      const underDock = doc.elementsFromPoint(dock.left + 25, dock.top + 25);
+      checks.overlay = underDock.some(n => n.closest(".mobile-dock")) && home.scrollHeight > home.clientHeight;
+      const originalImage = doc.querySelector("#cover-image");
+      checks.loadedCover = originalImage.complete && originalImage.naturalWidth > 0;
+      win.mobileTest.flush(() => doc.querySelector(".dock-track").click());
+      const artwork = doc.querySelector(".cover-flow-card[data-offset='0'] .album-art");
+      const flight = artwork.closest(".cover-flow-flight");
+      const coverAnimation = flight.getAnimations()[0];
+      checks.sharedCover = !!coverAnimation && doc.querySelector("#cover-image") === originalImage &&
+        !doc.querySelector(".flying-cover") && win.getComputedStyle(originalImage).visibility === "visible";
+      const opening = doc.getAnimations().filter(a => a.effect.getTiming().iterations !== Infinity);
+      opening.forEach(a => a.pause());
+      const duration = coverAnimation.effect.getTiming().duration;
+      checks.slower = duration >= 1000;
+      const innerTransform = win.getComputedStyle(artwork).transform;
+      const frames = [];
+      checks.stableImage = true;
+      for (let step = 0; step <= 60; step++) {
+        opening.forEach(a => { a.currentTime = duration * step / 60; });
+        const rect = artwork.getBoundingClientRect();
+        frames.push({width:rect.width, top:rect.top});
+        checks.stableImage &&= doc.querySelector("#cover-image") === originalImage && originalImage.complete &&
+          originalImage.naturalWidth > 0 && win.getComputedStyle(artwork).transform === innerTransform &&
+          win.getComputedStyle(originalImage).visibility === "visible" &&
+          [originalImage, artwork, flight, flight.parentElement, doc.querySelector("#listening-view")].every(n =>
+            win.getComputedStyle(n).opacity === "1");
+      }
+      checks.continuousOpen = frames.every((rect, index) => index === 0 ||
+        rect.width >= frames[index-1].width && rect.top <= frames[index-1].top);
+      const lastFrame = artwork.getBoundingClientRect();
+      const lastRadius = win.getComputedStyle(artwork).borderRadius;
+      finish(); await wait();
+      const cover = bounds("#cover-image"), footer = bounds(".player-footer");
+      checks.playerFits = cover.width > 100 && cover.left >= 0 && cover.right <= win.innerWidth && cover.bottom < footer.top && footer.bottom <= win.innerHeight + 1;
+      const resting = artwork.getBoundingClientRect();
+      checks.noHandoffJump = Math.abs(resting.left - lastFrame.left) < .1 && Math.abs(resting.top - lastFrame.top) < .1 &&
+        Math.abs(resting.width - lastFrame.width) < .1 && win.getComputedStyle(artwork).borderRadius === lastRadius;
+      checks.openClean = !doc.querySelector("[data-player-motion]") && !flight.style.transform && !originalImage.style.visibility;
+      win.mobileTest.flush(() => doc.querySelector("#album-art").dispatchEvent(new win.KeyboardEvent("keydown", {key:"ArrowRight",bubbles:true})));
+      finish(); await wait();
+      const title = doc.querySelector(".cover-flow-title");
+      checks.preview = title.textContent.trim() === "火力全开" && win.getComputedStyle(title).display !== "none" &&
+        ["-1", "1"].every(offset => Number(win.getComputedStyle(doc.querySelector('.cover-flow-card[data-offset="'+offset+'"]').firstElementChild.parentElement).opacity) > .9) &&
+        win.mobileTest.app.getSnapshot().playback.current.id === "0";
+      const beforeDrag = bounds("#cover-image");
+      pointer("pointerdown", 100); pointer("pointermove", 140);
+      const firstDrag = bounds("#cover-image");
+      pointer("pointermove", 200);
+      const secondDrag = bounds("#cover-image");
+      checks.continuousDrag = firstDrag.width < beforeDrag.width && secondDrag.width < firstDrag.width &&
+        firstDrag.top > beforeDrag.top && secondDrag.top > firstDrag.top && win.mobileTest.app.getSnapshot().navigation.view === "player";
+      checks.homeRevealed = win.getComputedStyle(doc.querySelector("#browse-view")).display === "flex" && doc.querySelector("#browse-view").hasAttribute("inert");
+      pointer("pointercancel", 200);
+      const cancelStart = bounds("#cover-image");
+      checks.cancelContinuous = Math.abs(cancelStart.width-secondDrag.width) < .1 && Math.abs(cancelStart.top-secondDrag.top) < .1;
+      finish(); await wait();
+      checks.cancelRestores = !doc.querySelector("[data-player-motion]") && Math.abs(bounds("#cover-image").width-beforeDrag.width)<.1 &&
+        win.mobileTest.app.getSnapshot().navigation.view === "player" && title.textContent.trim() === "火力全开";
+      dismiss();
+      checks.reverse = !!doc.querySelector("[data-player-motion]");
+      const closing = doc.getAnimations().filter(a => a.effect.getTiming().iterations !== Infinity);
+      closing.forEach(a => a.pause());
+      const closingDuration = closing[0].effect.getTiming().duration;
+      const closingCover = doc.querySelector("#cover-image");
+      let previous = closingCover.getBoundingClientRect();
+      checks.continuousClose = true;
+      for (let step = 0; step <= 60; step++) {
+        closing.forEach(a => { a.currentTime = closingDuration * step / 60; });
+        const rect = closingCover.getBoundingClientRect();
+        checks.continuousClose &&= doc.querySelector("#cover-image") === closingCover &&
+          closingCover.naturalWidth > 0 && win.getComputedStyle(closingCover).visibility === "visible" &&
+          rect.width <= previous.width + .01 && rect.top >= previous.top - .01;
+        previous = rect;
+      }
+      const landing = bounds(".dock-cover");
+      checks.dockAligned = Math.abs(previous.left-landing.left)<.1 && Math.abs(previous.top-landing.top)<.1 &&
+        Math.abs(previous.width-landing.width)<.1;
+      finish(); await wait();
+      checks.retained = home.scrollTop === 230 && !doc.querySelector(".mobile-dock").hidden;
+      checks.noAutofocus = doc.activeElement.id !== "track-search-input";
+      checks.noHandle = !doc.querySelector(".player-dismiss");
+      // Sampling two actual image loads must update the shared palette regardless of page.
+      const sampler = doc.querySelector(".artwork-background img");
+      const setColor = async color => {
+        const canvas = doc.createElement("canvas"); canvas.width = canvas.height = 32;
+        const context = canvas.getContext("2d"); context.fillStyle = color; context.fillRect(0,0,32,32);
+        await new Promise(resolve => { sampler.addEventListener("load", resolve, {once:true}); sampler.src = canvas.toDataURL(); });
+        return doc.documentElement.style.getPropertyValue("--cover-top");
+      };
+      const warm = await setColor("#e08040");
+      win.mobileTest.flush(() => doc.querySelector(".dock-track").click());
+      // A new downward drag must take over an unfinished opening without jumping.
+      const interrupted = doc.getAnimations().filter(a => a.effect.getTiming().iterations !== Infinity);
+      interrupted.forEach(a => { a.pause(); a.currentTime = 400; });
+      const beforeInterrupt = bounds("#cover-image");
+      win.mobileTest.flush(() => {
+        pointer("pointerdown", 100); pointer("pointermove", 111); pointer("pointermove", 100);
+      });
+      const afterInterrupt = bounds("#cover-image");
+      checks.interruptContinuous = Math.abs(beforeInterrupt.width-afterInterrupt.width)<.1 &&
+        Math.abs(beforeInterrupt.top-afterInterrupt.top)<.1;
+      pointer("pointercancel", 100); finish(); await wait();
+      const cool = await setColor("#4080e0");
+      checks.palette = warm !== cool && cool.startsWith("rgb(");
+      dismiss();
+      win.mobileTest.unmount();
+      checks.cleanup = !doc.querySelector("[data-player-motion], .dismiss-artwork");
+      return checks;
+    }));
+    document.querySelector("#layout-results").textContent = JSON.stringify(results);
+  });</script>`,
+    );
+    for (const { name, ...checks } of results)
+      for (const [check, passed] of Object.entries(checks))
+        assert(passed, `${name} ${check}: ${JSON.stringify(checks)}`);
+  },
+);

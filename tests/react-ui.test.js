@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import { icon } from "../src/icons.js";
 
 // Install an actual DOM before ReactDOM initializes its browser event support.
 const dom = new JSDOM(
@@ -79,14 +78,6 @@ class Audio extends dom.window.EventTarget {
   }
 }
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
-function assertMobileHomeTarget(label, iconName) {
-  const button = document.querySelector("#home-toggle");
-  assert.equal(button.getAttribute("aria-label"), label);
-  const expected = document.createElement("span");
-  expected.innerHTML = icon(iconName);
-  assert(button.querySelector("svg").isEqualNode(expected.firstElementChild));
-}
-
 async function click(selector, container = document) {
   const node = container.querySelector(selector);
   assert(node, `Missing rendered element: ${selector}`);
@@ -135,7 +126,14 @@ function trackListeners(target) {
 }
 async function mount(
   t,
-  { mobile = false, provider: overrides = {}, queue = songs, openQq, android } = {},
+  {
+    mobile = false,
+    provider: overrides = {},
+    queue = songs,
+    openQq,
+    android,
+    startOnHome = false,
+  } = {},
 ) {
   document.body.innerHTML = "";
   delete window.qmplayDesktop;
@@ -210,6 +208,9 @@ async function mount(
     async searchArtists(query) {
       requests.push(`search:${query}`);
       return [artist];
+    },
+    async searchTracks() {
+      return { tracks: songs, hasMore: false };
     },
     async getFollowerCount() {
       return 123;
@@ -290,6 +291,8 @@ async function mount(
     root.render(createElement(App, { app }));
     await tick();
   });
+  // Transport-focused fixtures explicitly open the player; home tests exercise the default route.
+  if (mobile && !startOnHome) await act(async () => app.returnToPlayer());
   return {
     app,
     provider,
@@ -310,6 +313,21 @@ async function mount(
   };
 }
 async function chooseMode(mode) {
+  if (!document.querySelector("#mode-toggle")) {
+    if (document.querySelector(".mobile-back")) await click(".mobile-back");
+    if (!document.querySelector("#listening-view").hidden)
+      await act(async () => window.dispatchEvent(new CustomEvent("qmplay-back")));
+    if (mode === "artist") {
+      await input("#track-search-input", "周杰伦");
+      await act(async () => {
+        document
+          .querySelector("#track-search")
+          .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+        await tick();
+      });
+    } else if (mode === "queue") await click('.mobile-dock button[aria-label="播放队列"]');
+    return;
+  }
   await click("#mode-toggle");
   await click(`.mode-option[data-mode="${mode}"]`);
 }
@@ -331,8 +349,8 @@ for (const mobile of [false, true]) {
     });
     await chooseMode("radio");
     assert.equal(document.querySelector("#browse-view").firstElementChild.id, "track-search");
-    assert.equal(document.querySelector("#browse-view h2"), null);
-    assert.notEqual(document.activeElement.id, "track-search-input");
+    if (!mobile) assert.equal(document.querySelector("#browse-view h2"), null);
+    if (!mobile) assert.notEqual(document.activeElement.id, "track-search-input");
     await input("#track-search-input", "晴天");
     await act(async () => {
       document
@@ -344,9 +362,11 @@ for (const mobile of [false, true]) {
     assert.equal(document.querySelector("#track-results .artist-name").textContent, found.title);
     assert.equal(document.querySelector("#track-results .artist-name img"), null);
     const row = document.querySelector('[data-search-track="found"]');
-    const next = document.querySelector('[data-next-track="found"]');
+    const next = document.querySelector(
+      mobile ? '[data-more-track="found"]' : '[data-next-track="found"]',
+    );
     assert(next);
-    assert.equal(next.title, "添加到下一首播放");
+    assert.equal(next.title, mobile ? "更多操作" : "添加到下一首播放");
     assert.equal(row.parentElement === next.parentElement, true);
     assert.equal(document.querySelector("#track-results button button"), null);
     assert.equal(row.querySelector(".icon-slot"), null);
@@ -358,6 +378,7 @@ for (const mobile of [false, true]) {
       assert.equal(event.defaultPrevented, false);
     });
     assert.equal(document.querySelector(".track-context-menu"), null);
+    if (mobile) await click('[data-more-track="found"]');
     await click('[data-next-track="found"]');
     assert.equal(player.audio.loads, loads);
     assert.equal(player.audio.paused, false);
@@ -449,9 +470,15 @@ for (const mobile of [false, true]) {
     await chooseMode("liked");
     const source = player.app.getSnapshot().playback.source;
     const loads = player.audio.loads;
-    assert.equal(document.querySelectorAll("#liked-results [data-next-track]").length, 2);
+    assert.equal(
+      document.querySelectorAll(
+        mobile ? ".home-favorites [data-more-track]" : "#liked-results [data-next-track]",
+      ).length,
+      2,
+    );
     assert.equal(document.querySelector("#liked-results button button"), null);
-    await click('#liked-results [data-next-track="favorite"]');
+    if (mobile) await click('[data-more-track="favorite"]');
+    await click('[data-next-track="favorite"]');
     assert.equal(player.audio.loads, loads);
     assert.equal(player.audio.paused, false);
     assert.equal(player.app.getSnapshot().playback.current.id, "a");
@@ -464,15 +491,16 @@ for (const mobile of [false, true]) {
     await click('[data-liked-track="other-favorite"]');
     assert.equal(player.app.getSnapshot().playback.current.id, "other-favorite");
     assert.equal(player.audio.paused, false);
-    assert.equal(player.app.getSnapshot().navigation.view, "liked");
+    assert.equal(player.app.getSnapshot().navigation.view, mobile ? "browse" : "liked");
     assert.deepEqual(player.app.getSnapshot().playback.source, source);
     assert.deepEqual(
       player.app.getSnapshot().playback.queue.map((track) => track.id),
       ["a", "other-favorite", "favorite", "b", "c"],
     );
     assert.deepEqual(player.app.getSnapshot().library.liked, favorites);
-    await click("#play-liked");
+    await click(mobile ? "#home-play-liked" : "#play-liked");
     assert.equal(player.app.getSnapshot().playback.source.type, "liked");
+    assert.equal(player.app.getSnapshot().navigation.view, mobile ? "browse" : "liked");
     assert.deepEqual(
       player.app.getSnapshot().playback.queue.map((track) => track.id),
       ["favorite", "other-favorite"],
@@ -534,13 +562,6 @@ for (const mobile of [false, true]) {
     await click('[data-album="album"]');
     assert.equal(player.app.getSnapshot().navigation.view, "albumTracks");
     assert.equal(player.app.getSnapshot().navigation.mobileMode, mobile ? "artist" : "radio");
-    if (mobile) {
-      assertMobileHomeTarget("主页", "home");
-      await click("#home-toggle");
-      assertMobileHomeTarget("专辑歌曲", "artist");
-      await click("#home-toggle");
-      assert.equal(player.app.getSnapshot().navigation.view, "albumTracks");
-    }
     assert.equal(player.audio.loads, loads);
     assert.equal(player.app.getSnapshot().playback.current.id, "a");
     assert.equal(player.app.getSnapshot().playback.elapsed, 32);
@@ -566,6 +587,7 @@ for (const mobile of [false, true]) {
     await click('[data-album="album"]');
     await click("#play-album");
     assert.equal(player.app.getSnapshot().playback.source.type, "album");
+    assert.equal(player.app.getSnapshot().navigation.view, "albumTracks");
     assert.equal(player.app.getSnapshot().playback.current.id, "album-song");
     assert.equal(player.audio.paused, false);
     assert(!player.app.getSnapshot().playback.queue.some((item) => item.id === "a"));
@@ -799,34 +821,15 @@ test("React keeps network authentication failures retryable without starting a Q
   assert.equal(document.querySelector("#track-title").textContent, "歌曲 a");
 });
 
-test("desktop verification checks an active session and enters QR login only when it expires", async (t) => {
+test("automatic session expiry replaces playback with login without a verification button", async (t) => {
   const player = await mount(t);
-  const button = document.querySelector("#verify-login");
-  assert.equal(button.nextElementSibling.id, "minimize-window");
+  assert.equal(document.querySelector("#verify-login"), null);
   await click("#play-toggle");
-  await click("#verify-login");
-  assert.equal(document.querySelector("#notice-message").textContent, "QQ 音乐登录有效");
-  assert.equal(player.audio.paused, false);
-
-  player.provider.getAuthStatus = async () => {
-    throw new Error("网络暂时不可用");
-  };
-  await click("#verify-login");
-  assert.match(
-    document.querySelector("#notice-message").textContent,
-    /无法完成登录验证.*网络暂时不可用/,
-  );
-  assert.equal(player.app.getSnapshot().auth.state, "ready");
-  assert.equal(player.audio.paused, false);
-  assert.equal(player.requests.includes("qr"), false);
-
-  await click("#dismiss-notice");
-  assert.equal(document.querySelector("#notice").hidden, true);
-  await click("#verify-login");
-
   player.provider.getAuthStatus = async () => ({ authenticated: false });
-  await click("#notice-action");
-  assert.equal(player.app.getSnapshot().auth.state, "waiting");
+  await act(async () => {
+    player.provider.onAuthenticationRequired();
+    await tick();
+  });
   assert.equal(player.audio.paused, true);
   assert.equal(document.querySelector("#auth-qr").hidden, false);
 });
@@ -909,7 +912,10 @@ test("mobile login shows a dedicated button and restores the player after QQ con
     },
   };
   player.provider.getAuthStatus = async () => ({ authenticated: false });
-  await click("#verify-login");
+  await act(async () => {
+    player.provider.onAuthenticationRequired();
+    await tick();
+  });
   assert.equal(player.app.getSnapshot().auth.state, "needsLogin");
   assert.equal(document.querySelector("#verify-login"), null);
   assert.deepEqual(opens, []);
@@ -965,7 +971,7 @@ test("React favorite, lyric seek, and queue actions call the real application co
     ["a", "c"],
   );
   await click('[data-index="1"]');
-  assert.equal(document.querySelector("#queue-panel").hidden, true);
+  assert.equal(document.querySelector("#queue-panel").hidden, false);
   assert.equal(document.querySelector("#track-title").textContent, "歌曲 c");
   assert.equal(player.audio.paused, false);
 });
@@ -1067,60 +1073,89 @@ test("React search and album selection use typed data and render upstream text s
   assert.equal(player.app.getSnapshot().playback.source.type, "album");
 });
 
-test("React mobile home and native back navigation preserve the listening source", async (t) => {
-  const player = await mount(t, { mobile: true });
-  await click("#play-toggle");
-  const loads = player.audio.loads;
-  assert.equal(document.querySelector("#queue-toggle"), null);
-  assert.equal(document.querySelector("#queue-panel").hidden, true);
-  assertMobileHomeTarget("喜欢的音乐", "heart");
-  await click("#home-toggle");
-  assert.equal(document.querySelector("#liked-view").hidden, false);
-  assertMobileHomeTarget("主页", "home");
-  assert.equal(player.app.getSnapshot().playback.current.id, "a");
-  await act(async () => {
-    window.dispatchEvent(new CustomEvent("qmplay-back"));
+test("mobile stations show their first song covers and follow playback, pause and source changes", async (t) => {
+  const radio = [
+    { ...songs[0], id: "radio-first", coverUrl: "https://images.test/radio.jpg" },
+    { ...songs[1], id: "radio-second", coverUrl: "https://images.test/next.jpg" },
+  ];
+  const daily = [{ ...songs[0], id: "daily-first", coverUrl: "https://images.test/daily.jpg" }];
+  const calls = { radio: 0, daily: 0 };
+  const player = await mount(t, {
+    mobile: true,
+    startOnHome: true,
+    provider: {
+      getRadioTracks: async () => {
+        calls.radio++;
+        return radio;
+      },
+      getDailyRecommendedTracks: async () => {
+        calls.daily++;
+        return daily;
+      },
+    },
   });
-  assert.equal(player.app.getSnapshot().navigation.view, "player");
-  assertMobileHomeTarget("喜欢的音乐", "heart");
-  await click("#home-toggle");
-  assert.equal(player.app.getSnapshot().navigation.view, "liked");
-  await click("#home-toggle");
-  assert.equal(player.app.getSnapshot().navigation.view, "player");
-  await chooseMode("radio");
-  assertMobileHomeTarget("主页", "home");
-  await click("#home-toggle");
-  assertMobileHomeTarget("推荐电台", "radio");
-  await click("#home-toggle");
+  const card = (id) => document.querySelector(`.station-card[data-station="${id}"]`);
+  const cover = (id) => card(id).querySelector(".station-art img").getAttribute("src");
+  assert.equal(cover("99"), `./art?url=${encodeURIComponent(radio[0].coverUrl)}`);
+  assert.equal(cover("daily"), `./art?url=${encodeURIComponent(daily[0].coverUrl)}`);
+  assert.equal(document.querySelectorAll('.station-card[data-playing="true"]').length, 0);
+  await click('.station-card[data-station="99"]');
+  assert.equal(player.app.getSnapshot().playback.current.id, "radio-first");
+  assert.equal(card("99").dataset.playing, "true");
+  assert.equal(card("99").querySelector(".station-play").textContent.trim(), "");
+  assert.equal(card("99").querySelectorAll(".station-play .mini-bars i").length, 3);
+  assert.equal(card("99").getAttribute("aria-label"), "暂停私人电台");
+  await act(async () => player.app.advance("next"));
+  assert.equal(cover("99"), `./art?url=${encodeURIComponent(radio[0].coverUrl)}`);
+  await click(".dock-play");
+  assert.equal(card("99").dataset.playing, "false");
+  await click('.station-card[data-station="99"]');
+  assert.equal(card("99").dataset.playing, "true");
+  assert.equal(player.app.getSnapshot().playback.current.id, "radio-second");
+  await click('.station-card[data-station="daily"]');
+  assert.equal(player.app.getSnapshot().playback.current.id, "daily-first");
+  assert.equal(card("99").dataset.playing, "false");
+  assert.equal(card("daily").dataset.playing, "true");
+  assert.deepEqual(calls, { radio: 1, daily: 1 });
+  await click('.station-card[data-station="daily"]');
+  assert.equal(player.audio.paused, true);
+  assert.equal(card("daily").dataset.playing, "false");
+  await click("#home-play-liked");
+  assert.equal(document.querySelectorAll('.station-card[data-playing="true"]').length, 0);
   assert.equal(player.app.getSnapshot().navigation.view, "browse");
-  assert.equal(player.audio.loads, loads);
-  assert.equal(player.audio.paused, false);
 });
 
-test("React opens the mobile queue from the drawer and remembers it as the home destination", async (t) => {
-  const player = await mount(t, { mobile: true });
-  const queue = document.querySelector("#queue-panel");
+test("mobile dock and native back preserve playback and open the queue", async (t) => {
+  const player = await mount(t, { mobile: true, startOnHome: true });
+  assert.equal(player.app.getSnapshot().navigation.view, "browse");
+  assert.equal(document.querySelector("#mode-toggle"), null);
+  assert.equal(document.querySelector("#verify-login"), null);
+  assert.equal(document.querySelector("#search-view"), null);
+  assert.equal(document.querySelector("#track-search button"), null);
+  assert.equal(document.querySelectorAll(".station-card").length, 2);
+  await click(".dock-play");
   const loads = player.audio.loads;
-  await chooseMode("queue");
-  assert.equal(player.app.getSnapshot().navigation.view, "queue");
-  assert.equal(player.app.getSnapshot().navigation.menuOpen, false);
-  assert.equal(queue.getAttribute("role"), "region");
-  assert.equal(queue.hasAttribute("aria-modal"), false);
-  assert.equal(queue.hidden, false);
-  assert.equal(document.activeElement, queue);
-  assertMobileHomeTarget("主页", "home");
-  await click("#home-toggle");
-  assert.equal(queue.hidden, true);
-  assertMobileHomeTarget("播放队列", "queue");
-  await click("#home-toggle");
-  assert.equal(queue.hidden, false);
-  assert.equal(player.audio.loads, loads);
-  await click('#queue-list [data-index="1"]');
-  assert.equal(queue.hidden, true);
+  await click(".dock-track");
   assert.equal(player.app.getSnapshot().navigation.view, "player");
+  assert.equal(document.querySelector(".mobile-dock").hidden, true);
+  assert.equal(document.querySelector(".player-dismiss"), null);
+  await act(async () => window.dispatchEvent(new CustomEvent("qmplay-back")));
+  assert.equal(player.app.getSnapshot().navigation.view, "browse");
+  assert.notEqual(document.activeElement.id, "track-search-input");
+  await click('.mobile-dock button[aria-label="播放队列"]');
+  assert.equal(document.querySelector("#queue-panel").hidden, false);
+  assert.equal(document.activeElement.id, "queue-panel");
+  await click('#queue-list [data-index="1"]');
   assert.equal(player.app.getSnapshot().playback.current.id, "b");
+  assert.equal(player.app.getSnapshot().navigation.view, "queue");
+  await click(".dock-track");
+  assert.equal(player.app.getSnapshot().navigation.view, "player");
+  await click("#home-toggle");
+  assert.equal(player.app.getSnapshot().navigation.view, "queue");
+  await click(".mobile-back");
+  assert.equal(player.app.getSnapshot().navigation.view, "browse");
+  assert.equal(player.audio.loads, loads + 2);
   assert.equal(player.audio.paused, false);
-  assertMobileHomeTarget("播放队列", "queue");
 });
 
 test("React virtual queue supports keyboard navigation and unmount cleans platform subscriptions", async (t) => {
@@ -1168,26 +1203,6 @@ test("React virtual queue supports keyboard navigation and unmount cleans platfo
   player.audio.currentTime = 99;
   player.audio.dispatchEvent(new Event("timeupdate"));
   assert.equal(player.app.getSnapshot().playback.elapsed, elapsed);
-});
-
-test("React mobile menu traps keyboard focus and marks the underlying controls inert", async (t) => {
-  const player = await mount(t, { mobile: true });
-  await click("#mode-toggle");
-  assert.equal(document.querySelector('.mode-option[data-mode="home"]'), null);
-  assert.equal(document.querySelector(".main-stage").hasAttribute("inert"), true);
-  assert.equal(document.querySelector(".player-footer").hasAttribute("inert"), true);
-  assert.equal(document.querySelector("#mode-toggle").hasAttribute("inert"), false);
-  assert.equal(document.querySelector("#mode-toggle").getAttribute("role"), "slider");
-  await keyboard(document.activeElement, "End");
-  assert.equal(document.activeElement.dataset.mode, "artist");
-  await keyboard(document.activeElement, "Tab");
-  assert.equal(document.activeElement.dataset.mode, "queue");
-  await keyboard(document.activeElement, "Tab", { shiftKey: true });
-  assert.equal(document.activeElement.dataset.mode, "artist");
-  await keyboard(document.activeElement, "Escape");
-  assert.equal(player.app.getSnapshot().navigation.menuOpen, false);
-  assert.equal(document.activeElement.id, "mode-toggle");
-  assert.equal(document.querySelector(".main-stage").hasAttribute("inert"), false);
 });
 
 test("React search defers IME queries and removes stale clickable results as input changes", async (t) => {
@@ -1243,143 +1258,64 @@ async function pointer(target, type, x, y = 0) {
   await act(async () => dispatchPointer(target, type, x, y));
 }
 
-// jsdom does not lay out the mobile stops; give the real components their browser geometry.
-function mobileNavigationBounds() {
-  const control = document.querySelector(".mode-control");
-  const thumb = document.querySelector("#mode-toggle");
-  const rect = (x) => ({ left: x, top: 300, right: x + 44, bottom: 344, width: 44, height: 44 });
-  control.getBoundingClientRect = () => rect(200);
-  for (const [index, mode] of ["queue", "radio", "liked", "artist"].entries())
-    document.querySelector(`[data-mode="${mode}"]`).getBoundingClientRect = () =>
-      rect(56 + index * 48);
-  thumb.getBoundingClientRect = () =>
-    rect(200 + Number(thumb.style.transform.match(/translate\(([-\d.]+)px/)?.[1] || 0));
-  return { control, thumb };
-}
-
-test("React mobile navigation accepts taps and a loose drag without changing playback", async (t) => {
-  const player = await mount(t, { mobile: true });
-  const { thumb } = mobileNavigationBounds();
-  const source = player.app.getSnapshot().playback.source;
-  const loads = player.audio.loads;
-  await click("#mode-toggle");
-  assert.equal(thumb.getAttribute("role"), "slider");
-  assert.equal(thumb.getAttribute("aria-valuenow"), "1");
-  await pointer(thumb, "pointerdown", 126, 322);
-  await pointer(thumb, "pointermove", 180, 360);
-  assert.equal(thumb.getAttribute("aria-valuetext"), "喜欢的音乐");
-  assert.equal(thumb.getAttribute("aria-valuenow"), "2");
-  assert.equal(player.app.getSnapshot().navigation.view, "player");
-  await pointer(thumb, "pointerup", 188, 382); // 14px from the stop and 60px below the starting finger.
-  assert.equal(player.app.getSnapshot().navigation.view, "liked");
-  assert.equal(player.app.getSnapshot().navigation.menuOpen, false);
-  await act(async () => {
-    thumb.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
-  });
-  assert.equal(
-    player.app.getSnapshot().navigation.menuOpen,
-    false,
-    "A drag's trailing click must not reopen the menu",
-  );
-  await chooseMode("artist");
-  assert.equal(player.app.getSnapshot().navigation.view, "search");
-  assert.equal(player.audio.loads, loads);
-  assert.deepEqual(player.app.getSnapshot().playback.source, source);
-});
-
-test("React mobile thumb can reveal the selector while dragging and tolerates endpoint overshoot", async (t) => {
-  const player = await mount(t, { mobile: true });
-  const { thumb } = mobileNavigationBounds();
-  await pointer(thumb, "pointerdown", 222, 322);
-  await pointer(thumb, "pointermove", 166, 355);
-  assert.equal(player.app.getSnapshot().navigation.menuOpen, true);
-  assert.equal(document.querySelector(".mode-control").dataset.dragging, "true");
-  await pointer(thumb, "pointerup", 156, 398);
-  assert.equal(player.app.getSnapshot().navigation.view, "liked");
-  await pointer(thumb, "pointerdown", 222, 322);
-  await pointer(thumb, "pointermove", 0, 340);
-  await pointer(thumb, "pointerup", 0, 340);
-  assert.equal(player.app.getSnapshot().navigation.view, "queue");
-  assert.equal(player.app.getSnapshot().navigation.menuOpen, false);
-  assert.equal(player.app.getSnapshot().playback.current.id, "a");
-});
-
-test("React mobile thumb cancels interrupted and distant drags without selecting a page", async (t) => {
-  const player = await mount(t, { mobile: true });
-  const { thumb, control } = mobileNavigationBounds();
-  await click("#mode-toggle");
-  for (const ending of ["pointercancel", "lostpointercapture", "pointerup"]) {
-    await pointer(thumb, "pointerdown", 126, 322);
-    await pointer(thumb, "pointermove", 180, 340);
-    await pointer(thumb, ending, 180, 420);
-    assert.equal(player.app.getSnapshot().navigation.view, "player");
-    assert.equal(control.dataset.dragging, "false");
-    assert.equal(thumb.getAttribute("aria-valuenow"), "1");
-  }
-  await pointer(thumb, "pointerdown", 126, 322);
-  await act(async () => {
-    // A very quick interruption can coalesce both React updates into one render.
-    dispatchPointer(thumb, "pointermove", 180, 340);
-    dispatchPointer(thumb, "pointercancel", 180, 340);
-  });
-  assert.equal(thumb.style.transform, "translate(-96px, 0px)");
-  assert.equal(control.dataset.dragging, "false");
-  await pointer(thumb, "pointerdown", 126, 322);
-  await pointer(thumb, "pointermove", 180, 340);
-  await act(async () => player.app.setMobile(false));
-  assert.equal(control.dataset.dragging, "false");
-  await pointer(thumb, "pointerup", 180, 340);
-  assert.equal(player.app.getSnapshot().navigation.view, "player");
-});
-
-test("React mobile slider supports keyboard selection and desktop keeps click navigation", async (t) => {
-  const player = await mount(t, { mobile: true });
-  const { thumb } = mobileNavigationBounds();
-  await click("#mode-toggle");
-  await keyboard(thumb, "ArrowRight");
-  assert.equal(player.app.getSnapshot().navigation.view, "liked");
-  await click("#mode-toggle");
-  await keyboard(thumb, "End");
-  assert.equal(player.app.getSnapshot().navigation.view, "search");
-  await act(async () => player.app.setMobile(false));
-  await pointer(thumb, "pointerdown", 222, 322);
-  await pointer(thumb, "pointermove", 120, 322);
-  await pointer(thumb, "pointerup", 120, 322);
-  assert.equal(player.app.getSnapshot().navigation.menuOpen, false);
-  await chooseMode("radio");
-  assert.equal(player.app.getSnapshot().navigation.view, "browse");
-});
-
-test("React home suspends and resumes the mounted page and stage swipes no longer navigate", async (t) => {
-  const player = await mount(t, { mobile: true });
-  await chooseMode("artist");
-  await input("#search-input", "周杰伦");
+test("mobile home keeps search and scroll position while cover swipes dismiss or cancel", async (t) => {
+  const player = await mount(t, { mobile: true, startOnHome: true });
+  await input("#track-search-input", "周杰伦");
   await act(async () => {
     document
-      .querySelector("#artist-search")
+      .querySelector("#track-search")
       .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await tick();
   });
-  const results = document.querySelector("#artist-results");
+  const results = document.querySelector("#track-results");
+  assert.equal(results.firstElementChild.className, "search-artists");
+  assert(document.querySelector('[data-artist="singer"]'));
+  assert(document.querySelector('[data-search-track="a"]'));
   results.scrollTop = 234;
-  const stage = document.querySelector(".main-stage");
-  await pointer(stage, "pointerdown", 0);
-  await pointer(stage, "pointerup", 100);
-  assert.equal(player.app.getSnapshot().navigation.view, "search");
-  await click("#home-toggle");
-  assert.equal(player.app.getSnapshot().navigation.view, "player");
-  assertMobileHomeTarget("搜索歌手", "artist");
-  assert.equal(document.querySelector("#search-view").hidden, true);
-  await pointer(stage, "pointerdown", 100);
-  await pointer(stage, "pointerup", 0);
-  assert.equal(player.app.getSnapshot().navigation.view, "player");
-  await click("#home-toggle");
-  assert.equal(player.app.getSnapshot().navigation.view, "search");
-  assert.equal(document.querySelector("#artist-results"), results);
+  await click(".dock-track");
+  const flow = document.querySelector(".cover-flow");
+  for (const end of ["pointercancel", "lostpointercapture"]) {
+    await pointer(flow, "pointerdown", 180, 100);
+    await pointer(flow, "pointermove", 185, 220);
+    await pointer(flow, end, 185, 220);
+    assert.equal(flow.style.translate, "");
+    assert.equal(player.app.getSnapshot().navigation.view, "player");
+  }
+  await pointer(flow, "pointerdown", 180, 100);
+  await pointer(flow, "pointermove", 185, 240);
+  await pointer(flow, "pointerup", 185, 240);
+  assert.equal(player.app.getSnapshot().navigation.view, "browse");
+  assert.equal(document.querySelector("#track-results"), results);
   assert.equal(results.scrollTop, 234);
-  assert.equal(document.querySelector("#search-input").value, "周杰伦");
+  assert.equal(document.querySelector("#track-search-input").value, "周杰伦");
+  assert.notEqual(document.activeElement.id, "track-search-input");
   assert.equal(player.app.getSnapshot().playback.current.id, "a");
-  assert.equal(player.requests.filter((request) => request.startsWith("play:")).length, 0);
+  await click('[data-artist="singer"]');
+  assert.equal(player.app.getSnapshot().navigation.view, "albums");
+});
+
+test("mobile favorites highlight the current track and collapse station cards with scroll", async (t) => {
+  const player = await mount(t, {
+    mobile: true,
+    startOnHome: true,
+    provider: { getFavorites: async () => songs },
+  });
+  const row = document.querySelector('.home-favorites [data-current="true"]');
+  assert.equal(row.querySelector("[data-liked-track]").dataset.likedTrack, "a");
+  assert(row.querySelector(".mini-bars"));
+  const list = document.querySelector("#radio-results");
+  await act(async () => {
+    list.scrollTop = 210;
+    list.dispatchEvent(new Event("scroll"));
+  });
+  assert.equal(document.querySelector(".station-shelf").dataset.collapsed, "true");
+  await act(async () => {
+    list.scrollTop = 0;
+    list.dispatchEvent(new Event("scroll"));
+  });
+  assert.equal(document.querySelector(".station-shelf").dataset.collapsed, "false");
+  await click(".dock-like");
+  assert.equal(player.writes[0][0], "a");
 });
 
 test("React mobile cover swipes preview tracks until the cover or play button is clicked", async (t) => {

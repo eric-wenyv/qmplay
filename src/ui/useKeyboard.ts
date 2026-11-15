@@ -16,13 +16,16 @@ export function useKeyboard(app: MusicApplication, snapshot: AppSnapshot) {
         app.setMenu(false);
     };
     const keyboard = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || document.querySelector("dialog[open]")) return;
       const state = app.getSnapshot();
       if (state.auth.state !== "ready") return;
       const { navigation } = state;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        if (!navigation.queueOpen && !(navigation.mobile && navigation.menuOpen)) app.showSearch();
+        if (!navigation.queueOpen && !(navigation.mobile && navigation.menuOpen)) {
+          app.showSearch();
+          if (navigation.mobile) focusElement("#track-search-input");
+        }
         return;
       }
       if (event.key === "Escape") {
@@ -33,7 +36,8 @@ export function useKeyboard(app: MusicApplication, snapshot: AppSnapshot) {
         else if (navigation.menuOpen) {
           app.setMenu(false);
           focusElement("#mode-toggle");
-        } else if (navigation.view !== "player") app.returnToPlayer();
+        } else if (navigation.mobile && navigation.view !== "browse") void app.showRadio();
+        else if (!navigation.mobile && navigation.view !== "player") app.returnToPlayer();
         return;
       }
       const modal =
@@ -109,6 +113,7 @@ export function useKeyboard(app: MusicApplication, snapshot: AppSnapshot) {
       else if (next.view === "albums") focusElement("#play-artist");
       else if (next.view === "albumTracks") focusElement("#album-tracks-back");
       else if (next.view === "queue") focusElement("#queue-panel");
+      else if (next.mobile) focusElement(next.view === "player" ? "#album-art" : ".dock-track");
       else focusElement('#mode-toggle, .desktop-nav [aria-current="page"]');
     } else if (before.menuOpen && !next.menuOpen && document.activeElement?.closest("#mode-menu"))
       focusElement("#mode-toggle");

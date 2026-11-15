@@ -378,7 +378,7 @@ test("song search cancels stale requests, pages without replacing playback and s
     return late.promise;
   };
   const leaving = app.searchTracks("leaving");
-  app.showSearch();
+  app.showLiked();
   assert.equal(signal.aborted, true);
   late.resolve({ tracks: [song("late")], hasMore: false });
   await leaving;
@@ -392,15 +392,23 @@ test("song search cancels stale requests, pages without replacing playback and s
 
 for (const mobile of [false, true]) {
   test(`personal radio remains first and continues with subsequent batches (${mobile ? "mobile" : "desktop"})`, async (t) => {
-    const { app, provider, audio } = await setup(t, {}, { mobile });
+    const requests = [];
+    const { app, audio } = await setup(
+      t,
+      {},
+      {
+        mobile,
+        provider: {
+          getRadioStations: async () => assert.fail("public catalogue is no longer used"),
+          getRadioTracks: async (id, firstplay, { signal }) => {
+            requests.push({ id, firstplay, signal });
+            return firstplay ? [...songs] : [song("next-personal")];
+          },
+        },
+      },
+    );
     await app.switchSource("liked");
     app.seek(35);
-    const requests = [];
-    provider.getRadioStations = async () => assert.fail("public catalogue is no longer used");
-    provider.getRadioTracks = async (id, firstplay, { signal }) => {
-      requests.push({ id, firstplay, signal });
-      return firstplay ? [...songs] : [song("next-personal")];
-    };
     await app.showRadio();
     assert.deepEqual(
       app.getSnapshot().catalog.stations.map(({ id, name }) => ({ id, name })),
@@ -411,7 +419,7 @@ for (const mobile of [false, true]) {
     );
     assert.equal(app.session.elapsed, 35);
     assert.equal(audio.paused, false);
-    assert.equal(requests.length, 0);
+    assert.equal(requests.length, mobile ? 1 : 0);
     await app.switchSource("radio", { id: "99" });
     await app.selectTrack(2);
     await app.advance("next", true);
@@ -428,14 +436,22 @@ for (const mobile of [false, true]) {
 
 for (const mobile of [false, true]) {
   test(`daily recommendations are a finite queue and refresh on explicit selection (${mobile ? "mobile" : "desktop"})`, async (t) => {
-    const { app, provider } = await setup(t, {}, { mobile });
     let calls = 0;
     const daily = Array.from({ length: 30 }, (_, index) => song(`daily-${index}`));
-    provider.getDailyRecommendedTracks = async () => {
-      calls++;
-      return daily;
-    };
-    provider.getRecommendedTracks = provider.getRadioTracks = async () =>
+    const { app, provider } = await setup(
+      t,
+      {},
+      {
+        mobile,
+        provider: {
+          getDailyRecommendedTracks: async () => {
+            calls++;
+            return daily;
+          },
+        },
+      },
+    );
+    provider.getRecommendedTracks = async () =>
       assert.fail("daily recommendations must not fall back to other sources");
     await app.showRadio();
     await app.switchSource("radio", { id: "daily", name: "每日30首" });
@@ -451,6 +467,119 @@ for (const mobile of [false, true]) {
     assert.equal(calls, 2);
   });
 }
+
+test("station previews share pending first batches with playback and failed previews remain retryable", async (t) => {
+  const first = deferred(),
+    daily = deferred();
+  const calls = { radio: 0, daily: 0 };
+  const { app, provider, audio } = await setup(
+    t,
+    { queue: songs, queueSource: { type: "liked" } },
+    {
+      mobile: true,
+      provider: {
+        getRadioTracks: () => {
+          calls.radio++;
+          return first.promise;
+        },
+        getDailyRecommendedTracks: () => {
+          calls.daily++;
+          return daily.promise;
+        },
+      },
+    },
+  );
+  assert.equal(audio.paused, true);
+  assert.equal(app.session.current.id, "a");
+  const play = app.switchSource("radio", { id: "99" });
+  assert.deepEqual(calls, { radio: 1, daily: 1 });
+  first.resolve([song("first", { coverUrl: "https://images.test/first.jpg" }), song("next")]);
+  daily.reject(new Error("offline"));
+  await play;
+  await settle();
+  assert.equal(app.getSnapshot().catalog.stations[0].coverUrl, app.session.current.coverUrl);
+  assert.equal(app.getSnapshot().catalog.stations[1].coverUrl, "");
+  assert.equal(app.getSnapshot().notice, null);
+  assert.equal(app.session.current.id, "first");
+  provider.getDailyRecommendedTracks = async () => {
+    calls.daily++;
+    return [song("daily", { coverUrl: "https://images.test/daily.jpg" })];
+  };
+  await app.switchSource("radio", { id: "daily" });
+  assert.equal(app.getSnapshot().catalog.stations[1].coverUrl, app.session.current.coverUrl);
+  assert.deepEqual(calls, { radio: 1, daily: 2 });
+});
+
+test("cancelling a station selection preserves its preview for the next play", async (t) => {
+  const first = deferred();
+  let calls = 0;
+  const { app } = await setup(
+    t,
+    { queue: songs, queueSource: { type: "liked" } },
+    {
+      mobile: true,
+      provider: {
+        getRadioTracks: () => {
+          calls++;
+          return first.promise;
+        },
+      },
+    },
+  );
+  const cancelled = app.switchSource("radio", { id: "99" });
+  await app.switchSource("liked");
+  first.resolve([song("preview", { coverUrl: "https://images.test/preview.jpg" })]);
+  await cancelled;
+  assert.equal(app.session.source.type, "liked");
+  await app.switchSource("radio", { id: "99" });
+  assert.equal(app.session.current.id, "preview");
+  assert.equal(app.getSnapshot().catalog.stations[0].coverUrl, app.session.current.coverUrl);
+  assert.equal(calls, 1);
+});
+
+test("station covers and pending preview batches are isolated after an account change", async (t) => {
+  const oldRadio = deferred(),
+    oldDaily = deferred();
+  const signals = [];
+  const { app, provider } = await setup(
+    t,
+    { queue: songs, queueSource: { type: "liked" } },
+    {
+      mobile: true,
+      provider: {
+        getRadioTracks: (_id, _first, { signal }) => {
+          signals.push(signal);
+          return oldRadio.promise;
+        },
+        getDailyRecommendedTracks: ({ signal }) => {
+          signals.push(signal);
+          return oldDaily.promise;
+        },
+      },
+    },
+  );
+  provider.getAuthStatus = async () => ({ authenticated: true, user: { uin: "200" } });
+  provider.getRadioTracks = async () => [
+    song("new-radio", { coverUrl: "https://images.test/new-radio.jpg" }),
+  ];
+  provider.getDailyRecommendedTracks = async () => [
+    song("new-daily", { coverUrl: "https://images.test/new-daily.jpg" }),
+  ];
+  await app.refreshFavorites();
+  await settle();
+  assert(signals.every((signal) => signal.aborted));
+  oldRadio.resolve([song("old-radio", { coverUrl: "https://images.test/old-radio.jpg" })]);
+  oldDaily.resolve([song("old-daily", { coverUrl: "https://images.test/old-daily.jpg" })]);
+  await settle();
+  assert.deepEqual(
+    app.getSnapshot().catalog.stations.map((station) => station.coverUrl),
+    ["https://images.test/new-radio.jpg", "https://images.test/new-daily.jpg"],
+  );
+  await app.switchSource("radio", { id: "daily" });
+  assert.equal(app.session.current.id, "new-daily");
+  app.stop();
+  assert(app.getSnapshot().catalog.stations.every((station) => station.coverUrl === ""));
+});
 
 test("failed daily recommendations preserve current playback and remain retryable", async (t) => {
   const { app, provider, audio } = await setup(t);
@@ -541,7 +670,7 @@ test("explicit favorite selection replaces the queue; an empty library leaves cu
   app.showLiked();
   await app.switchSource("liked", null, { trackId: "c" });
   assert.equal(app.session.current.id, "c");
-  assert.equal(app.getSnapshot().navigation.view, "player");
+  assert.equal(app.getSnapshot().navigation.view, "liked");
   setFavorites([]);
   await app.refreshFavorites();
   app.seek(31);
@@ -941,7 +1070,7 @@ for (const pageName of ["search", "albums", "albumTracks"]) {
     );
     await pending;
     app.toggleMobileHome();
-    assert.equal(app.getSnapshot().navigation.view, pageName);
+    assert.equal(app.getSnapshot().navigation.view, pageName === "search" ? "browse" : pageName);
     const catalog = app.getSnapshot().catalog;
     assert(
       pageName === "search"
@@ -957,18 +1086,19 @@ test("mobile home remembers the browsing page and responsive transitions close o
   const { app } = await setup(t, {}, { mobile: true });
   await app.switchSource("liked");
   app.seek(24);
+  app.returnToPlayer();
   app.toggleMobileHome();
-  assert.equal(app.getSnapshot().navigation.view, "liked");
+  assert.equal(app.getSnapshot().navigation.view, "browse");
   app.showSearch();
   app.toggleMobileHome();
   assert.equal(app.getSnapshot().navigation.view, "player");
-  assert.equal(app.getSnapshot().navigation.mobileMode, "artist");
+  assert.equal(app.getSnapshot().navigation.mobileMode, "radio");
   app.showLyrics();
   assert.equal(app.getSnapshot().navigation.view, "lyrics");
   app.toggleMobileHome();
   assert.equal(app.getSnapshot().navigation.view, "player");
   app.toggleMobileHome();
-  assert.equal(app.getSnapshot().navigation.view, "search");
+  assert.equal(app.getSnapshot().navigation.view, "browse");
   app.openQueue();
   assert.equal(app.getSnapshot().navigation.view, "queue");
   assert.equal(app.getSnapshot().navigation.queueOpen, false);
@@ -983,7 +1113,7 @@ test("mobile home remembers the browsing page and responsive transitions close o
   app.openQueue();
   assert.equal(app.getSnapshot().navigation.queueOpen, true);
   app.setMobile(true);
-  assert.equal(app.getSnapshot().navigation.view, "player");
+  assert.equal(app.getSnapshot().navigation.view, "browse");
   assert.equal(app.getSnapshot().navigation.queueOpen, false);
   assert.equal(app.session.elapsed, 24);
 });
@@ -1137,3 +1267,70 @@ test("metadata duration updates preserve an in-flight page and its pending next 
   assert.equal(app.session.current.id, "next");
   assert.equal(app.session.queue.find((track) => track.id === "c").duration, 220);
 });
+
+for (const mobile of [false, true]) {
+  test(`playback actions preserve the current page and queue visibility (${mobile ? "mobile" : "desktop"})`, async (t) => {
+    const { app, audio } = await setup(t, {}, { mobile });
+    const cases = [
+      { open: () => app.showRadio(), type: "radio", resource: { id: "99" }, view: "browse" },
+      { open: () => app.showRadio(), type: "radio", resource: { id: "daily" }, view: "browse" },
+      {
+        open: () => (mobile ? app.showRadio() : app.showLiked()),
+        type: "liked",
+        view: mobile ? "browse" : "liked",
+      },
+      {
+        open: () => app.showArtistAlbums(artist("singer")),
+        type: "artist",
+        resource: artist("singer"),
+        view: "albums",
+      },
+      {
+        open: () => app.showAlbumTracks(album("record")),
+        type: "album",
+        resource: album("record"),
+        view: "albumTracks",
+      },
+    ];
+    for (const { open, type, resource, view } of cases) {
+      await open();
+      await app.switchSource(type, resource);
+      assert.equal(
+        app.getSnapshot().navigation.view,
+        view,
+        `${type} play-all must preserve its page`,
+      );
+      assert.equal(audio.paused, false);
+      const navigation = app.getSnapshot().navigation;
+      await app.insertTrackNext(song("inserted"), { autoplay: true });
+      await app.advance("next");
+      app.seek(0);
+      await app.advance("previous");
+      app.pause();
+      await app.play();
+      assert.deepEqual(app.getSnapshot().navigation, navigation);
+    }
+    app.openQueue();
+    const navigation = app.getSnapshot().navigation;
+    await app.selectTrack(1);
+    assert.equal(audio.paused, false);
+    assert.deepEqual(
+      app.getSnapshot().navigation,
+      navigation,
+      "Choosing a queue item must keep the queue open",
+    );
+    await app.advance("next", true);
+    assert.deepEqual(
+      app.getSnapshot().navigation,
+      navigation,
+      "Automatic advancement must not navigate",
+    );
+    app.closeQueue();
+    app.returnToPlayer();
+    assert.equal(
+      app.getSnapshot().navigation.view,
+      "player",
+      "Explicit navigation remains available",
+    );
+  });
+}

@@ -1,4 +1,4 @@
-import type { Album, Artist, View } from "../contracts.js";
+import type { Album, Artist, Track, View } from "../contracts.js";
 import { rememberArtist } from "../storage.js";
 import type { ApplicationProvider } from "./provider.js";
 import type { NavigationController } from "./navigation.js";
@@ -35,6 +35,11 @@ export class CatalogController {
   private lyricAbort: AbortController | null = null;
   private lyricId: string | null = null;
   private inlineLyrics = false;
+  private stationPreviews = new Map<string, Track[]>();
+  private stationRequests = new Map<
+    string,
+    { controller: AbortController; promise: Promise<Track[]> }
+  >();
   constructor(
     private store: ApplicationStore,
     private provider: ApplicationProvider,
@@ -54,6 +59,9 @@ export class CatalogController {
       this.cancelTrackSearch();
     }
   }
+  private artistSearchActive(): boolean {
+    return this.navigation.isPageActive("search") || this.navigation.isPageActive("browse");
+  }
   cancelSearch(): void {
     this.searchVersion++;
     this.searchAbort?.abort();
@@ -62,6 +70,13 @@ export class CatalogController {
     this.store.publish();
   }
   stop(): void {
+    for (const request of this.stationRequests.values()) request.controller.abort();
+    this.stationRequests.clear();
+    this.stationPreviews.clear();
+    this.store.state.catalog.stations = this.store.state.catalog.stations.map((station) => ({
+      ...station,
+      coverUrl: "",
+    }));
     this.cancelSearch();
     this.cancelTrackSearch();
     this.cancelAlbumTracks();
@@ -73,6 +88,10 @@ export class CatalogController {
     this.store.state.requests.lyrics = false;
   }
   showSearch(): void {
+    if (this.store.state.navigation.mobile) {
+      void this.showRadio();
+      return;
+    }
     this.navigation.browse("search");
     void this.search("");
   }
@@ -93,17 +112,13 @@ export class CatalogController {
       const results = await this.provider.searchArtists(query, {
         signal: controller.signal,
       });
-      if (version !== this.searchVersion || !this.navigation.isPageActive("search")) return;
+      if (version !== this.searchVersion || !this.artistSearchActive()) return;
       this.store.state.catalog.artists = results;
       this.store.state.announcement = results.length
         ? `找到 ${results.length} 位歌手`
         : "没有找到歌手";
     } catch (error) {
-      if (
-        version === this.searchVersion &&
-        !controller.signal.aborted &&
-        this.navigation.isPageActive("search")
-      )
+      if (version === this.searchVersion && !controller.signal.aborted && this.artistSearchActive())
         this.effects.reportError(errorMessage(error), () => this.search(query));
     } finally {
       if (version === this.searchVersion) {
@@ -122,12 +137,7 @@ export class CatalogController {
       const count = await this.provider.getFollowerCount(id, {
         signal: this.searchAbort?.signal,
       });
-      if (
-        version !== this.searchVersion ||
-        !this.navigation.isPageActive("search") ||
-        count === null
-      )
-        return;
+      if (version !== this.searchVersion || !this.artistSearchActive() || count === null) return;
       this.store.state.catalog.artists = this.store.state.catalog.artists.map((item) =>
         item.id === id ? { ...item, followerCount: count } : item,
       );
@@ -137,6 +147,7 @@ export class CatalogController {
     }
   }
   cancelTrackSearch(): void {
+    this.cancelSearch();
     this.trackSearchVersion++;
     this.trackSearchAbort?.abort();
     this.store.state.requests.trackSearch = false;
@@ -149,7 +160,10 @@ export class CatalogController {
     this.store.state.catalog.hasMoreTracks = !!query.trim();
     this.trackSearchPage = 0;
     this.store.publish();
-    if (query.trim()) await this.loadMoreTracks();
+    await Promise.all([
+      this.search(query),
+      query.trim() ? this.loadMoreTracks() : Promise.resolve(),
+    ]);
   }
   async loadMoreTracks(): Promise<void> {
     const state = this.store.state;
@@ -331,16 +345,76 @@ export class CatalogController {
     this.navigation.browse("browse");
     if (!this.store.state.catalog.tracks.length && this.store.state.catalog.hasMoreTracks)
       void this.loadMoreTracks();
-    this.store.state.catalog.stations = [
-      {
-        id: "99",
-        name: "私人电台",
-        group: "根据你的听歌喜好推荐",
-        coverUrl: "",
-      },
-      { id: "daily", name: "每日30首", group: "QQ 音乐每日专属推荐", coverUrl: "" },
-    ];
+    await this.loadStationPreviews();
+  }
+  stationLoaded(id: string, tracks: Track[]): void {
+    if (this.stationPreviews.get(id) === tracks) this.stationPreviews.delete(id);
+    this.updateStationCover(id, tracks);
+  }
+  private updateStationCover(id: string, tracks: Track[]): void {
+    const coverUrl = tracks[0]?.coverUrl || "";
+    if (
+      !this.store.state.catalog.stations.some(
+        (station) => station.id === id && station.coverUrl !== coverUrl,
+      )
+    )
+      return;
+    this.store.state.catalog.stations = this.store.state.catalog.stations.map((station) =>
+      station.id === id ? { ...station, coverUrl } : station,
+    );
     this.store.publish();
+  }
+  /** Keep the batch until playback commits it; a cancelled selection must not consume the preview. */
+  stationPreview(id: string): Promise<Track[]> | undefined {
+    const tracks = this.stationPreviews.get(id);
+    return tracks ? Promise.resolve(tracks) : this.stationRequests.get(id)?.promise;
+  }
+  async loadStationPreviews(): Promise<void> {
+    const { auth, navigation, playback, catalog } = this.store.state;
+    if (auth.state !== "ready" || !navigation.mobile) return;
+    await Promise.allSettled(
+      catalog.stations.map((station) => {
+        if (
+          playback.source?.type === "radio" &&
+          playback.source.resource?.id === station.id &&
+          playback.queue.length
+        ) {
+          this.updateStationCover(station.id, playback.queue);
+          return;
+        }
+        if (this.stationPreviews.has(station.id)) return;
+        const pending = this.stationRequests.get(station.id);
+        if (pending) return pending.promise;
+        const controller = new AbortController();
+        const request = {
+          controller,
+          promise: Promise.resolve().then(async () => {
+            try {
+              const tracks =
+                station.id === "daily"
+                  ? await this.provider.getDailyRecommendedTracks({ signal: controller.signal })
+                  : await this.provider.getRadioTracks(station.id, 1, {
+                      signal: controller.signal,
+                    });
+              if (
+                this.stationRequests.get(station.id) === request &&
+                !controller.signal.aborted &&
+                this.store.state.auth.state === "ready"
+              ) {
+                if (tracks.length) this.stationPreviews.set(station.id, tracks);
+                this.updateStationCover(station.id, tracks);
+              }
+              return tracks;
+            } finally {
+              if (this.stationRequests.get(station.id) === request)
+                this.stationRequests.delete(station.id);
+            }
+          }),
+        };
+        this.stationRequests.set(station.id, request);
+        return request.promise;
+      }),
+    );
   }
   currentChanged(): void {
     this.lyricVersion++;

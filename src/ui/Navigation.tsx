@@ -53,23 +53,8 @@ export function Navigation({
   wide?: boolean;
 }) {
   const { navigation, auth } = snapshot;
-  const verifying = snapshot.requests.auth || auth.state === "checking";
   const queueModal = auth.state === "ready" && !navigation.mobile && navigation.queueOpen;
-  const loginButton = (
-    <button
-      id="verify-login"
-      className={navigation.mobile ? "mode-toggle" : "icon-button"}
-      type="button"
-      aria-label={verifying ? "正在验证登录" : "验证登录"}
-      aria-busy={verifying}
-      data-tip="验证登录"
-      disabled={verifying || auth.state === "authorizing" || auth.state === "loadingQr"}
-      inert={navigation.mobile && navigation.menuOpen}
-      onClick={() => void app.verifyAuthentication()}
-    >
-      <Icon name="verify" />
-    </button>
-  );
+  if (navigation.mobile) return null;
   const choose = (mode: NavigationMode) => {
     if (mode === "home") app.returnToPlayer();
     else if (mode === "artist") app.showSearch();
@@ -80,10 +65,8 @@ export function Navigation({
   return (
     <>
       <header className="topbar" inert={queueModal}>
-        {navigation.mobile && auth.state === "ready" && loginButton}
         {!wide && <CompactNavigation app={app} snapshot={snapshot} choose={choose} />}
         <div className="window-controls" aria-label="窗口控制" hidden={navigation.mobile}>
-          {!navigation.mobile && loginButton}
           <button
             id="minimize-window"
             className="icon-button"

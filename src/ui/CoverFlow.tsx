@@ -1,8 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, type CSSProperties, type PointerEvent } from "react";
+import { useLayoutEffect, useRef, type CSSProperties, type PointerEvent } from "react";
 import { artworkUrl } from "../api.js";
 import type { AppSnapshot, MusicApplication } from "../contracts.js";
+import type { PlayerTransition } from "./usePlayerTransition.js";
 import { playHaptic } from "../platform/haptics.js";
-import { useArtworkTheme } from "./useArtworkTheme.js";
 
 interface Drag {
   id: number;
@@ -10,6 +10,7 @@ interface Drag {
   y: number;
   step: number;
   horizontal: boolean;
+  vertical: boolean;
 }
 
 export function CoverFlow({
@@ -18,25 +19,22 @@ export function CoverFlow({
   selectedIndex,
   onPreview,
   active,
+  transition,
 }: {
   app: MusicApplication;
   playback: AppSnapshot["playback"];
   selectedIndex: number;
   onPreview: (index: number) => void;
   active: boolean;
+  transition?: PlayerTransition;
 }) {
   const flow = useRef<HTMLDivElement>(null);
   const image = useRef<HTMLImageElement>(null);
   const drag = useRef<Drag | null>(null);
   const suppressClick = useRef(false);
   const previousPreview = useRef<{ index: number; id: string } | null>(null);
-  const theme = useArtworkTheme();
-  const cover = current?.coverUrl;
   const preview = selectedIndex !== playingIndex ? queue[selectedIndex] : undefined;
   const previewId = preview?.id;
-  useEffect(() => {
-    if (image.current) theme(image.current);
-  }, [cover, current?.id, playingIndex, theme]);
   useLayoutEffect(() => {
     const before = previousPreview.current;
     previousPreview.current = active && previewId ? { index: selectedIndex, id: previewId } : null;
@@ -64,14 +62,21 @@ export function CoverFlow({
   }, [active, current?.id, playingIndex, previewId, selectedIndex]);
 
   const reset = (node: HTMLDivElement) => {
+    const gesture = drag.current;
     drag.current = null;
+    if (gesture && node.hasPointerCapture?.(gesture.id)) node.releasePointerCapture(gesture.id);
     node.removeAttribute("data-dragging");
     node.style.removeProperty("--cover-drag");
   };
   useLayoutEffect(() => {
     const node = flow.current;
     if (node) reset(node);
-  }, [active, current?.id, selectedIndex]);
+    return () => {
+      if (!node) return;
+      if (drag.current?.vertical) transition?.endDismiss(false);
+      reset(node);
+    };
+  }, [active, current?.id, selectedIndex, transition]);
 
   const select = (step: number, tactile = false) => {
     const target = selectedIndex + step;
@@ -85,10 +90,21 @@ export function CoverFlow({
     const dx = event.clientX - gesture.x;
     const dy = event.clientY - gesture.y;
     const node = event.currentTarget;
+    if (gesture.vertical) {
+      transition?.dragDismiss(dy);
+      return;
+    }
     if (!gesture.horizontal) {
       if (Math.max(Math.abs(dx), Math.abs(dy)) < 10) return;
-      if (Math.abs(dx) <= Math.abs(dy)) {
-        reset(node);
+      if (Math.abs(dx) <= Math.abs(dy) && transition) {
+        if (dy < 0 && !gesture.vertical) {
+          reset(node);
+          return;
+        }
+        gesture.vertical = true;
+        suppressClick.current = true;
+        node.setPointerCapture?.(event.pointerId);
+        transition?.dragDismiss(dy);
         return;
       }
       gesture.horizontal = true;
@@ -116,6 +132,7 @@ export function CoverFlow({
           y: event.clientY,
           step: Math.max(1, event.currentTarget.clientWidth * 0.455),
           horizontal: false,
+          vertical: false,
         };
       }}
       onPointerMove={move}
@@ -124,6 +141,11 @@ export function CoverFlow({
         if (!gesture || gesture.id !== event.pointerId) return;
         const dx = event.clientX - gesture.x;
         const dy = event.clientY - gesture.y;
+        if (gesture.vertical) {
+          transition?.endDismiss(dy > 80);
+          reset(event.currentTarget);
+          return;
+        }
         reset(event.currentTarget);
         if (Math.abs(dx) < 10 || Math.abs(dx) <= Math.abs(dy)) return;
         suppressClick.current = true;
@@ -131,11 +153,16 @@ export function CoverFlow({
           select(dx < 0 ? 1 : -1, event.pointerType === "touch" || event.pointerType === "pen");
       }}
       onPointerCancel={(event) => {
-        if (drag.current?.id === event.pointerId) reset(event.currentTarget);
+        if (drag.current?.id === event.pointerId) {
+          if (drag.current.vertical) transition?.endDismiss(false);
+          reset(event.currentTarget);
+        }
       }}
       onLostPointerCapture={(event) => {
-        if (event.target === event.currentTarget && drag.current?.id === event.pointerId)
+        if (event.target === event.currentTarget && drag.current?.id === event.pointerId) {
+          if (drag.current.vertical) transition?.endDismiss(false);
           reset(event.currentTarget);
+        }
       }}
       onClickCapture={(event) => {
         if (!suppressClick.current || event.detail === 0) return;
@@ -154,21 +181,21 @@ export function CoverFlow({
             style={{ "--cover-offset": offset } as CSSProperties}
             aria-hidden={Math.abs(offset) > 1 || undefined}
           >
-            <div className="album-art" data-art="original">
-              <img
-                ref={position === playingIndex ? image : undefined}
-                id={offset === 0 ? "cover-image" : undefined}
-                src={artworkUrl(track.coverUrl || "")}
-                alt={offset === 0 && track.coverUrl ? `${track.album || track.title} 封面` : ""}
-                width="1024"
-                height="1024"
-                fetchPriority={offset === 0 ? "high" : undefined}
-                draggable={false}
-                onLoad={
-                  position === playingIndex ? (event) => theme(event.currentTarget) : undefined
-                }
-              />
-              <div className="art-light" aria-hidden="true" />
+            <div className="cover-flow-flight">
+              <div className="album-art" data-art="original">
+                <img
+                  ref={position === playingIndex ? image : undefined}
+                  id={offset === 0 ? "cover-image" : undefined}
+                  src={artworkUrl(track.coverUrl || "")}
+                  alt={offset === 0 && track.coverUrl ? `${track.album || track.title} 封面` : ""}
+                  width="1024"
+                  height="1024"
+                  decoding="sync"
+                  fetchPriority={offset === 0 ? "high" : undefined}
+                  draggable={false}
+                />
+                <div className="art-light" aria-hidden="true" />
+              </div>
             </div>
           </div>
         );

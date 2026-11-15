@@ -9,6 +9,10 @@ import { RadioView } from "./RadioView.js";
 import { AlbumTracksView } from "./AlbumTracksView.js";
 import { LyricsView } from "./LyricsView.js";
 import { QueuePanel } from "./QueuePanel.js";
+import { ArtworkBackground } from "./ArtworkBackground.js";
+import { MobileDock } from "./MobileDock.js";
+import { usePlayerTransition } from "./usePlayerTransition.js";
+import { Icon } from "./Icon.js";
 import { useKeyboard } from "./useKeyboard.js";
 
 interface TrackPreview {
@@ -31,6 +35,7 @@ export function App({ app }: { app: MusicApplication }) {
   const snapshot = useSyncExternalStore(app.subscribe, app.getSnapshot, app.getSnapshot);
   usePlatform(app, snapshot);
   useKeyboard(app, snapshot);
+  const transitionPlayer = usePlayerTransition(app);
   const { navigation, playback, catalog, library, requests } = snapshot;
   const wideViewport = useSyncExternalStore(subscribeToWidth, isWideViewport, () => false);
   const wide = wideViewport && !navigation.mobile && !window.qmplayAndroid;
@@ -84,6 +89,7 @@ export function App({ app }: { app: MusicApplication }) {
         wide={wide}
         inert={controlsInert}
         selectedIndex={activePreview ?? playback.index}
+        transition={transitionPlayer}
         onPreview={(index) => {
           const track = playback.queue[index];
           setPreview(
@@ -113,6 +119,7 @@ export function App({ app }: { app: MusicApplication }) {
       navigation.view,
       controlsInert,
       requests.source,
+      transitionPlayer,
     ],
   );
   const searchView = useMemo(
@@ -152,6 +159,14 @@ export function App({ app }: { app: MusicApplication }) {
       catalog.hasMoreTracks,
       navigation,
       requests.trackSearch,
+      requests.search,
+      catalog.query,
+      catalog.artists,
+      library.liked,
+      playback.current,
+      playback.source,
+      playback.playing,
+      playback.desiredPlaying,
     ],
   );
   const favoritesView = useMemo(
@@ -189,9 +204,27 @@ export function App({ app }: { app: MusicApplication }) {
       snapshot.notice?.message,
     ],
   );
+  const mobileDock = useMemo(
+    () => <MobileDock app={app} snapshot={snapshot} onOpen={transitionPlayer.open} />,
+    [
+      app,
+      transitionPlayer,
+      playback.current,
+      playback.playing,
+      playback.desiredPlaying,
+      playback.loading,
+      library.liked,
+      library.busyIds,
+      navigation.mobile,
+      navigation.view,
+      snapshot.auth.state,
+    ],
+  );
   const className = [
     "player",
     wide && "is-wide",
+    navigation.mobile && "is-mobile",
+    navigation.mobile && playerPage && "mobile-player-page",
     playback.playing && "is-playing",
     playback.loading && "is-buffering",
     !playerPage && "is-searching",
@@ -230,6 +263,20 @@ export function App({ app }: { app: MusicApplication }) {
         hidden={!modalMenu}
         onClick={() => app.setMenu(false)}
       />
+      <ArtworkBackground cover={playback.current?.coverUrl} />
+      {navigation.mobile &&
+        !playerPage &&
+        navigation.view !== "browse" &&
+        snapshot.auth.state === "ready" && (
+          <button
+            className="mobile-back"
+            aria-label="返回首页"
+            onClick={() => void app.showRadio()}
+          >
+            <Icon name="arrowLeft" />
+            <span>首页</span>
+          </button>
+        )}
       {navigationView}
       {authView}
       <section
@@ -241,11 +288,11 @@ export function App({ app }: { app: MusicApplication }) {
         inert={controlsInert}
       >
         {playerView}
-        {searchView}
+        {!navigation.mobile && searchView}
         {albumsView}
         {albumTracksView}
         {radioView}
-        {favoritesView}
+        {!navigation.mobile && favoritesView}
         {lyricsView}
         {navigation.mobile && queue}
       </section>
@@ -255,6 +302,7 @@ export function App({ app }: { app: MusicApplication }) {
         inert={controlsInert}
         previewIndex={activePreview}
       />
+      {mobileDock}
       <div
         id="notice"
         className="notice"

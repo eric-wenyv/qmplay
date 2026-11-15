@@ -11,18 +11,18 @@ const palettes = new Map<string, Palette>();
 export function useArtworkTheme() {
   return useCallback((image: HTMLImageElement) => {
     const artwork = image.closest<HTMLElement>(".album-art");
-    if (!artwork || !image.complete || !image.naturalWidth) return;
-    const style = getComputedStyle(artwork);
+    if (!image.complete || !image.naturalWidth) return;
+    const style = getComputedStyle(artwork || image);
     const filter = style.getPropertyValue("--art-filter").trim() || "none";
     const scale = Number(style.getPropertyValue("--art-scale")) || 1;
-    const key = `${image.currentSrc || image.src}|${artwork.dataset.art}`;
+    const key = `${image.currentSrc || image.src}|${artwork?.dataset.art || "original"}`;
     let palette = palettes.get(key);
     if (!palette) {
       try {
         const canvas = document.createElement("canvas");
         canvas.width = canvas.height = 32;
         const context = canvas.getContext("2d", { willReadFrequently: true });
-        if (!context) return;
+        if (!context) throw new Error("Canvas sampling unavailable");
         context.filter = filter;
         const crop = Math.min(image.naturalWidth, image.naturalHeight) / scale;
         context.drawImage(
@@ -55,13 +55,13 @@ export function useArtworkTheme() {
           base: average(10, 27, 0.69),
           bottom: average(20, 32, 0.58),
         };
-        if (palettes.size > 100) {
+        if (palettes.size >= 100) {
           const oldest = palettes.keys().next().value;
           if (oldest) palettes.delete(oldest);
         }
         palettes.set(key, palette);
       } catch {
-        return; /* Keep the previous palette when pixels are unavailable. */
+        palette = { top: "#6a7487", base: "#4d596b", bottom: "#343d50" };
       }
     }
     for (const [name, value] of Object.entries(palette))

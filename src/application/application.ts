@@ -70,10 +70,10 @@ export class Application implements MusicApplication {
         source: preferences.queueSource,
       },
       navigation: {
-        view: "player",
+        view: options.mobile ? "browse" : "player",
         mobile: !!options.mobile,
-        mobilePage: null,
-        mobileMode: initialMobileMode(preferences.queueSource?.type),
+        mobilePage: options.mobile ? "browse" : null,
+        mobileMode: options.mobile ? "radio" : initialMobileMode(preferences.queueSource?.type),
         menuOpen: false,
         queueOpen: false,
       },
@@ -87,7 +87,10 @@ export class Application implements MusicApplication {
         album: null,
         albumTracks: [],
         hasMoreAlbumTracks: false,
-        stations: [],
+        stations: [
+          { id: "99", name: "私人电台", group: "猜你喜欢 · 沉浸刷歌", coverUrl: "" },
+          { id: "daily", name: "每日30首", group: "每天遇见新的喜欢", coverUrl: "" },
+        ],
         trackQuery: "",
         tracks: [],
         hasMoreTracks: false,
@@ -118,19 +121,15 @@ export class Application implements MusicApplication {
       save: () => this.savePreferences(),
       reportError: (message, retry) => this.showNotice(message, "error", retry),
     });
-    this.playback = new PlaybackController(
-      this.store,
-      options.provider,
-      options.audio,
-      this.navigation,
-      {
-        save: () => this.savePreferences(),
-        notice: (message) => this.showNotice(message, "info"),
-        reportError: (message, retry) => this.showNotice(message, "error", retry),
-        currentChanged: () => this.catalog.currentChanged(),
-        now: this.now,
-      },
-    );
+    this.playback = new PlaybackController(this.store, options.provider, options.audio, {
+      save: () => this.savePreferences(),
+      notice: (message) => this.showNotice(message, "info"),
+      reportError: (message, retry) => this.showNotice(message, "error", retry),
+      currentChanged: () => this.catalog.currentChanged(),
+      stationPreview: (id) => this.catalog.stationPreview(id),
+      stationLoaded: (id, tracks) => this.catalog.stationLoaded(id, tracks),
+      now: this.now,
+    });
     // Show the saved paused player immediately; authenticated requests start after validation.
     this.playback.restore(preferences, { load: false });
     this.favorites = new FavoriteSync({
@@ -152,6 +151,7 @@ export class Application implements MusicApplication {
       onState: (auth) => {
         if (!this.running) return;
         this.store.state.auth = auth;
+        if (auth.state === "ready") void this.catalog.loadStationPreviews();
         if (auth.state === "ready" && !this.playerStarted) {
           this.playerStarted = true;
           this.playback.restore(this.preferences);
@@ -378,7 +378,10 @@ export class Application implements MusicApplication {
     }
   }
   setMobile(mobile: boolean): void {
+    const entering = mobile && !this.store.state.navigation.mobile;
     this.navigation.setMobile(mobile);
+    if (entering && ["player", "search", "liked"].includes(this.store.state.navigation.view))
+      void this.catalog.showRadio();
   }
   setMenu(open: boolean): void {
     this.navigation.setMenu(open);

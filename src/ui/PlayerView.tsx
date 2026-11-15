@@ -1,11 +1,10 @@
-import { Fragment, memo, useEffect, useRef, useState, type CSSProperties } from "react";
+import { Fragment, memo, useState, type CSSProperties } from "react";
 import { artworkUrl, artistsOnTrack } from "../api.js";
 import { formatTime, orderLabels, orderModes } from "../player.js";
-import type { AppSnapshot, Artist, MusicApplication, PlayOrder, View } from "../contracts.js";
+import type { AppSnapshot, Artist, MusicApplication, PlayOrder } from "../contracts.js";
+import type { PlayerTransition } from "./usePlayerTransition.js";
 import { CoverFlow } from "./CoverFlow.js";
 import { Icon } from "./Icon.js";
-import { describePage } from "./Navigation.js";
-import { useArtworkTheme } from "./useArtworkTheme.js";
 import { useMobileWheelMotion } from "./useMobileWheelMotion.js";
 
 function artistFromName(id: string, name: string): Artist {
@@ -24,6 +23,7 @@ export function PlayerView({
   inert,
   selectedIndex,
   onPreview,
+  transition,
 }: {
   app: MusicApplication;
   snapshot: AppSnapshot;
@@ -31,19 +31,15 @@ export function PlayerView({
   inert: boolean;
   selectedIndex: number;
   onPreview: (index: number) => void;
+  transition?: PlayerTransition;
 }) {
   const { current, index, source } = snapshot.playback;
   const { mobile, view } = snapshot.navigation;
   const showPlayer = view === "player" || (wide && view === "lyrics");
-  const image = useRef<HTMLImageElement>(null);
-  const theme = useArtworkTheme();
   const cover = artworkUrl(current?.coverUrl || "");
   const liked = snapshot.library.liked.some((track) => track.id === current?.id);
   const busy = Boolean(current && snapshot.library.busyIds.includes(current.id));
   const singers = artistsOnTrack(current);
-  useEffect(() => {
-    if (image.current) theme(image.current);
-  }, [cover, mobile, theme]);
   return (
     <>
       <div id="listening-view" className="listening-view" hidden={!showPlayer || !current}>
@@ -55,6 +51,7 @@ export function PlayerView({
               selectedIndex={selectedIndex}
               onPreview={onPreview}
               active={view === "player" && !inert}
+              transition={transition}
             />
           )
         ) : (
@@ -81,7 +78,6 @@ export function PlayerView({
             }
           >
             <img
-              ref={image}
               id="cover-image"
               src={cover}
               alt={current?.coverUrl ? `${current.album || current.title} 封面` : "默认封面"}
@@ -89,7 +85,6 @@ export function PlayerView({
               height="1024"
               fetchPriority="high"
               draggable={false}
-              onLoad={(event) => theme(event.currentTarget)}
             />
             <div className="art-light" aria-hidden="true" />
             <span className="cover-index" aria-hidden="true">
@@ -194,7 +189,11 @@ export function PlaybackControls({
   const [scrubTime, setScrubTime] = useState<number | null>(null);
   const elapsed = Math.max(0, Math.min(scrubTime ?? playback.elapsed, duration));
   return (
-    <footer className="player-footer" inert={inert}>
+    <footer
+      className="player-footer"
+      inert={inert}
+      hidden={navigation.mobile && navigation.view !== "player" && navigation.view !== "lyrics"}
+    >
       <div className="timeline">
         <input
           id="seek"
@@ -230,7 +229,6 @@ export function PlaybackControls({
         order={playback.order}
         mobile={navigation.mobile}
         inert={inert}
-        homeTarget={navigation.view === "player" ? (navigation.mobilePage ?? "liked") : "player"}
         queueOpen={navigation.queueOpen}
       />
     </footer>
@@ -249,7 +247,6 @@ const TransportControls = memo(function TransportControls({
   order,
   mobile,
   inert,
-  homeTarget,
   queueOpen,
 }: {
   app: MusicApplication;
@@ -263,7 +260,6 @@ const TransportControls = memo(function TransportControls({
   order: PlayOrder;
   mobile: boolean;
   inert: boolean;
-  homeTarget: View;
   queueOpen: boolean;
 }) {
   const { wheel, wave, scrubMode, cancelScrub, onClickCapture, releaseFeedback } =
@@ -279,7 +275,6 @@ const TransportControls = memo(function TransportControls({
   const canPause = wantsPlayback && !previewing;
   const label = scrubMode ? "取消调带" : busy ? "取消加载" : canPause ? "暂停" : "播放";
   const glyph = scrubMode ? "scrub-cancel" : loading ? "cancel" : playing ? "pause" : "play";
-  const destination = mobile ? describePage(homeTarget) : null;
   return (
     <div className="control-deck">
       <nav className="transport" aria-label="播放控制">
@@ -374,15 +369,15 @@ const TransportControls = memo(function TransportControls({
           >
             <Icon name="next" />
           </button>
-          {destination ? (
+          {mobile ? (
             <button
               id="home-toggle"
               className="icon-button side-control"
               type="button"
-              aria-label={destination.label}
-              onClick={() => app.toggleMobileHome()}
+              aria-label="播放队列"
+              onClick={() => app.openQueue()}
             >
-              <Icon name={destination.icon} />
+              <Icon name="queue" />
             </button>
           ) : (
             <button

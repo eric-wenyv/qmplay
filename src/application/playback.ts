@@ -3,7 +3,6 @@ import { PlayerSession, orderLabels } from "../player.js";
 import type { Library, Resource, SourceType, Track } from "../contracts.js";
 import type { ApplicationProvider } from "./provider.js";
 import type { ApplicationStore } from "./store.js";
-import type { NavigationController } from "./navigation.js";
 import { errorMessage } from "./store.js";
 
 interface PlaybackEffects {
@@ -11,6 +10,8 @@ interface PlaybackEffects {
   notice(message: string): void;
   reportError(message: string, retry: () => unknown): void;
   currentChanged(): void;
+  stationPreview(id: string): Promise<Track[]> | undefined;
+  stationLoaded(id: string, tracks: Track[]): void;
   now(): number;
 }
 interface MoreRequest {
@@ -34,7 +35,6 @@ export class PlaybackController {
     private store: ApplicationStore,
     private provider: ApplicationProvider,
     audio: AudioElementLike,
-    private navigation: NavigationController,
     private effects: PlaybackEffects,
   ) {
     this.transport = new AudioTransport({
@@ -156,15 +156,16 @@ export class PlaybackController {
             : this.provider.getAlbumTrackPage(resource.id, 1, { signal }));
           queue = page.tracks;
         } else
-          queue =
-            resource.id === "daily"
-              ? await this.provider.getDailyRecommendedTracks({ signal })
+          queue = await (this.effects.stationPreview(resource.id) ??
+            (resource.id === "daily"
+              ? this.provider.getDailyRecommendedTracks({ signal })
               : resource.id === "new"
-                ? await this.provider.getRecommendedTracks({ signal })
-                : await this.provider.getRadioTracks(resource.id, 1, { signal });
+                ? this.provider.getRecommendedTracks({ signal })
+                : this.provider.getRadioTracks(resource.id, 1, { signal })));
       }
       if (version !== this.sourceVersion || signal.aborted) return;
       if (!queue.length) throw new Error("暂时没有可用歌曲，请选择其他来源");
+      if (type === "radio" && resource) this.effects.stationLoaded(resource.id, queue);
       this.store.state.requests.source = false;
       this.moreRequest?.controller.abort();
       this.queueVersion++;
@@ -179,7 +180,6 @@ export class PlaybackController {
           ...(type === "radio" && resource?.id === "daily" && { hasMore: false }),
         },
       });
-      this.navigation.setView("player");
       await this.loadCurrent({ autoplay });
       this.store.state.announcement = `${type === "liked" ? "喜欢的音乐" : type === "radio" ? "推荐电台" : "歌手电台"}，${queue.length} 首歌曲`;
     } catch (error) {
@@ -350,7 +350,6 @@ export class PlaybackController {
   }
   async selectTrack(index: number): Promise<void> {
     if (!this.session.select(index)) return;
-    this.navigation.closeQueue();
     await this.loadCurrent({ autoplay: true });
   }
   async insertTrackNext(track: Track, { autoplay = false } = {}): Promise<void> {
