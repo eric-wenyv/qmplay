@@ -5,7 +5,7 @@ export function focusElement(selector: string) {
   document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
 }
 
-export function useKeyboard(app: MusicApplication, snapshot: AppSnapshot) {
+export function useKeyboard(app: MusicApplication, snapshot: AppSnapshot, goBack: () => boolean) {
   useEffect(() => {
     const dismiss = (event: Event) => {
       if (
@@ -29,21 +29,13 @@ export function useKeyboard(app: MusicApplication, snapshot: AppSnapshot) {
         return;
       }
       if (event.key === "Escape") {
-        if (navigation.mobile && navigation.menuOpen) {
-          app.setMenu(false);
-          focusElement("#mode-toggle");
-        } else if (navigation.queueOpen) app.closeQueue();
-        else if (navigation.menuOpen) {
-          app.setMenu(false);
-          focusElement("#mode-toggle");
-        } else if (navigation.mobile && navigation.view !== "browse") void app.showRadio();
-        else if (!navigation.mobile && navigation.view !== "player") app.returnToPlayer();
+        goBack();
         return;
       }
       const modal =
         navigation.mobile && navigation.menuOpen
           ? "#mode-menu"
-          : !navigation.mobile && navigation.queueOpen
+          : navigation.queueOpen && (!navigation.mobile || navigation.view !== "player")
             ? "#queue-panel"
             : null;
       if (modal) {
@@ -52,7 +44,7 @@ export function useKeyboard(app: MusicApplication, snapshot: AppSnapshot) {
             ...document.querySelectorAll<HTMLButtonElement>(
               `${modal} button:not(:disabled):not([hidden])`,
             ),
-          ];
+          ].filter((button) => !button.closest("[inert]"));
           if (!buttons.length) return;
           const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
           const next = index + (event.shiftKey ? -1 : 1);
@@ -94,7 +86,7 @@ export function useKeyboard(app: MusicApplication, snapshot: AppSnapshot) {
       document.removeEventListener("pointerdown", dismiss);
       document.removeEventListener("focusin", dismiss);
     };
-  }, [app]);
+  }, [app, goBack]);
 
   const previous = useRef(snapshot.navigation);
   useLayoutEffect(() => {
@@ -107,12 +99,19 @@ export function useKeyboard(app: MusicApplication, snapshot: AppSnapshot) {
       selected?.focus({ preventScroll: true });
     } else if (next.queueOpen && !before.queueOpen) focusElement("#close-queue");
     else if (before.queueOpen && !next.queueOpen) {
-      focusElement(next.mobile ? "#home-toggle" : "#queue-toggle");
+      if (next.view === before.view) {
+        focusElement(
+          !next.mobile
+            ? "#queue-toggle"
+            : next.view === "player"
+              ? "#home-toggle"
+              : "#dock-queue-toggle",
+        );
+      }
     } else if (next.view !== before.view && document.activeElement?.id !== "home-toggle") {
       if (next.view === "search" && !next.mobile) focusElement("#search-input");
       else if (next.view === "albums") focusElement("#play-artist");
       else if (next.view === "albumTracks") focusElement("#album-tracks-back");
-      else if (next.view === "queue") focusElement("#queue-panel");
       else if (next.mobile) focusElement(next.view === "player" ? "#album-art" : ".dock-track");
       else focusElement('#mode-toggle, .desktop-nav [aria-current="page"]');
     } else if (before.menuOpen && !next.menuOpen && document.activeElement?.closest("#mode-menu"))

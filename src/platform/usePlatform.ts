@@ -1,10 +1,16 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { artworkUrl } from "../api.js";
 import type { AppSnapshot, MusicApplication } from "../contracts.js";
 import "./types.js";
 
+export const mobileViewportQuery = "(max-width: 560px), (pointer: coarse) and (max-width: 1024px)";
+
 /** Native APIs and page lifecycle are effects; the application itself has no DOM. */
-export function usePlatform(app: MusicApplication, snapshot: AppSnapshot) {
+export function usePlatform(
+  app: MusicApplication,
+  snapshot: AppSnapshot,
+  goBack: (backgroundOnHome: boolean) => boolean,
+) {
   useEffect(() => {
     const desktop = Boolean(window.qmplayDesktop);
     const android = Boolean(window.qmplayAndroid);
@@ -17,9 +23,7 @@ export function usePlatform(app: MusicApplication, snapshot: AppSnapshot) {
     };
     window.addEventListener("qmplay-insets", syncTopInset);
     syncTopInset();
-    const query = window.matchMedia(
-      "(max-width: 560px), (pointer: coarse) and (max-width: 1024px)",
-    );
+    const query = window.matchMedia(mobileViewportQuery);
     const resize = () => app.setMobile(!desktop && query.matches);
     resize();
     query.addEventListener("change", resize);
@@ -46,12 +50,9 @@ export function usePlatform(app: MusicApplication, snapshot: AppSnapshot) {
         app.seek(action / 1000);
     };
     const back = () => {
-      const state = app.getSnapshot().navigation;
-      if (state.menuOpen) app.setMenu(false);
-      else if (state.queueOpen) app.closeQueue();
-      else if (state.mobile && state.view !== "browse") void app.showRadio();
-      else if (!state.mobile && state.view !== "player") app.returnToPlayer();
-      else window.qmplayAndroid?.minimize();
+      if (!goBack(true)) return;
+      app.savePreferences();
+      window.qmplayAndroid?.minimize();
     };
     window.addEventListener("focus", refresh);
     window.addEventListener("online", refresh);
@@ -82,9 +83,9 @@ export function usePlatform(app: MusicApplication, snapshot: AppSnapshot) {
       document.body.classList.remove("desktop", "android", "auth-gated");
       document.body.style.removeProperty("--android-top-inset");
     };
-  }, [app]);
+  }, [app, goBack]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     document.body.classList.toggle(
       "auth-gated",
       snapshot.auth.state !== "checking" && snapshot.auth.state !== "ready",

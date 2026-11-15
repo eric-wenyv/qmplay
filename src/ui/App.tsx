@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { MusicApplication } from "../contracts.js";
 import { usePlatform } from "../platform/usePlatform.js";
 import { Navigation } from "./Navigation.js";
@@ -33,9 +33,36 @@ function subscribeToWidth(listener: () => void) {
 /** React renders snapshots; application controllers own all music workflows. */
 export function App({ app }: { app: MusicApplication }) {
   const snapshot = useSyncExternalStore(app.subscribe, app.getSnapshot, app.getSnapshot);
-  usePlatform(app, snapshot);
-  useKeyboard(app, snapshot);
   const transitionPlayer = usePlayerTransition(app);
+  const goBack = useCallback(
+    (backgroundOnHome = false) => {
+      const dialog = document.querySelector("dialog[open]");
+      if (dialog) {
+        dialog.dispatchEvent(new Event("cancel", { bubbles: true, cancelable: true }));
+        return false;
+      }
+      const { navigation, auth, catalog } = app.getSnapshot();
+      const focused = document.activeElement as HTMLElement | null;
+      if (navigation.view === "browse" && focused?.closest("#track-search, .search-history")) {
+        focused.blur();
+        if (!catalog.trackSearchInput.trim() && !navigation.queueOpen) return app.goBack();
+      }
+      if (
+        auth.state === "ready" &&
+        navigation.mobile &&
+        navigation.view === "player" &&
+        !navigation.queueOpen &&
+        !navigation.menuOpen
+      ) {
+        transitionPlayer.close();
+        return false;
+      }
+      return app.goBack(backgroundOnHome);
+    },
+    [app, transitionPlayer],
+  );
+  usePlatform(app, snapshot, goBack);
+  useKeyboard(app, snapshot, goBack);
   const { navigation, playback, catalog, library, requests } = snapshot;
   const wideViewport = useSyncExternalStore(subscribeToWidth, isWideViewport, () => false);
   const wide = wideViewport && !navigation.mobile && !window.qmplayAndroid;
@@ -50,8 +77,10 @@ export function App({ app }: { app: MusicApplication }) {
     if (wide && navigation.menuOpen) app.setMenu(false);
   }, [app, wide, navigation.view, navigation.menuOpen]);
   const desktopQueue = !navigation.mobile && navigation.queueOpen;
+  const inlineQueue = navigation.mobile && navigation.view === "player";
+  const dockQueue = navigation.mobile && !inlineQueue && navigation.queueOpen;
   const modalMenu = navigation.mobile && navigation.menuOpen;
-  const controlsInert = modalMenu || desktopQueue || snapshot.auth.state !== "ready";
+  const controlsInert = modalMenu || desktopQueue || dockQueue || snapshot.auth.state !== "ready";
   const [preview, setPreview] = useState<TrackPreview | null>(null);
   const activePreview =
     preview &&
@@ -81,6 +110,27 @@ export function App({ app }: { app: MusicApplication }) {
     ],
   );
   const authView = useMemo(() => <AuthView app={app} auth={snapshot.auth} />, [app, snapshot.auth]);
+  const queue = useMemo(
+    () => (
+      <QueuePanel
+        app={app}
+        snapshot={snapshot}
+        placement={inlineQueue ? "inline" : navigation.mobile ? "dock" : "desktop"}
+      />
+    ),
+    [
+      app,
+      inlineQueue,
+      playback.queue,
+      playback.history,
+      playback.index,
+      playback.source,
+      navigation.mobile,
+      navigation.queueOpen,
+      snapshot.notice?.message,
+    ],
+  );
+  const coverQueue = inlineQueue && navigation.queueOpen ? queue : null;
   const playerView = useMemo(
     () => (
       <PlayerView
@@ -89,6 +139,7 @@ export function App({ app }: { app: MusicApplication }) {
         wide={wide}
         inert={controlsInert}
         selectedIndex={activePreview ?? playback.index}
+        queue={coverQueue}
         transition={transitionPlayer}
         onPreview={(index) => {
           const track = playback.queue[index];
@@ -118,6 +169,7 @@ export function App({ app }: { app: MusicApplication }) {
       navigation.mobile,
       navigation.view,
       controlsInert,
+      coverQueue,
       requests.source,
       transitionPlayer,
     ],
@@ -128,6 +180,7 @@ export function App({ app }: { app: MusicApplication }) {
       app,
       catalog.query,
       catalog.artists,
+      catalog.searchHistory,
       navigation.view,
       navigation.mobile,
       navigation.mobilePage,
@@ -155,6 +208,8 @@ export function App({ app }: { app: MusicApplication }) {
       app,
       catalog.stations,
       catalog.trackQuery,
+      catalog.trackSearchInput,
+      catalog.searchHistory,
       catalog.tracks,
       catalog.hasMoreTracks,
       navigation,
@@ -190,26 +245,13 @@ export function App({ app }: { app: MusicApplication }) {
       activeLyric,
     ],
   );
-  const queue = useMemo(
-    () => <QueuePanel app={app} snapshot={snapshot} />,
-    [
-      app,
-      playback.queue,
-      playback.index,
-      playback.source?.type,
-      playback.source?.resource?.id,
-      navigation.mobile,
-      navigation.view,
-      navigation.queueOpen,
-      snapshot.notice?.message,
-    ],
-  );
   const mobileDock = useMemo(
-    () => <MobileDock app={app} snapshot={snapshot} onOpen={transitionPlayer.open} />,
+    () => <MobileDock app={app} snapshot={snapshot} transition={transitionPlayer} />,
     [
       app,
       transitionPlayer,
       playback.current,
+      playback.index,
       playback.playing,
       playback.desiredPlaying,
       playback.loading,
@@ -217,6 +259,7 @@ export function App({ app }: { app: MusicApplication }) {
       library.busyIds,
       navigation.mobile,
       navigation.view,
+      navigation.queueOpen,
       snapshot.auth.state,
     ],
   );
@@ -264,17 +307,19 @@ export function App({ app }: { app: MusicApplication }) {
         onClick={() => app.setMenu(false)}
       />
       <ArtworkBackground cover={playback.current?.coverUrl} />
+      <div className="player-motion-backdrop" aria-hidden="true" />
       {navigation.mobile &&
-        !playerPage &&
         navigation.view !== "browse" &&
+        navigation.view !== "player" &&
         snapshot.auth.state === "ready" && (
           <button
             className="mobile-back"
-            aria-label="返回首页"
-            onClick={() => void app.showRadio()}
+            aria-label="返回"
+            inert={dockQueue}
+            onClick={() => goBack()}
           >
             <Icon name="arrowLeft" />
-            <span>首页</span>
+            <span>返回</span>
           </button>
         )}
       {navigationView}
@@ -294,7 +339,6 @@ export function App({ app }: { app: MusicApplication }) {
         {radioView}
         {!navigation.mobile && favoritesView}
         {lyricsView}
-        {navigation.mobile && queue}
       </section>
       <PlaybackControls
         app={app}
@@ -308,7 +352,7 @@ export function App({ app }: { app: MusicApplication }) {
         className="notice"
         role="status"
         hidden={!snapshot.notice}
-        inert={modalMenu || desktopQueue}
+        inert={modalMenu || desktopQueue || dockQueue}
       >
         <span id="notice-message">{snapshot.notice?.message}</span>
         <button
@@ -334,11 +378,11 @@ export function App({ app }: { app: MusicApplication }) {
       </div>
       <div
         id="queue-backdrop"
-        className="queue-backdrop"
-        hidden={!desktopQueue}
+        className={navigation.mobile ? "queue-backdrop queue-backdrop-dock" : "queue-backdrop"}
+        hidden={!desktopQueue && !dockQueue}
         onClick={() => app.closeQueue()}
       />
-      {!navigation.mobile && queue}
+      {!inlineQueue && queue}
       <div id="announcement" className="sr-only" aria-live="polite" role="status">
         {snapshot.announcement}
       </div>

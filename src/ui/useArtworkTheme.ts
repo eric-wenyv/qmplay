@@ -1,21 +1,21 @@
 import { useCallback } from "react";
 
-interface Palette {
+interface PaletteColors {
   top: string;
   base: string;
   bottom: string;
+}
+interface Palette {
+  shared: Pick<PaletteColors, "base" | "bottom">;
+  background?: PaletteColors;
 }
 const palettes = new Map<string, Palette>();
 
 /** Sampling is view-only: it cannot alter the selected track or playback state. */
 export function useArtworkTheme() {
   return useCallback((image: HTMLImageElement) => {
-    const artwork = image.closest<HTMLElement>(".album-art");
     if (!image.complete || !image.naturalWidth) return;
-    const style = getComputedStyle(artwork || image);
-    const filter = style.getPropertyValue("--art-filter").trim() || "none";
-    const scale = Number(style.getPropertyValue("--art-scale")) || 1;
-    const key = `${image.currentSrc || image.src}|${artwork?.dataset.art || "original"}`;
+    const key = image.currentSrc || image.src;
     let palette = palettes.get(key);
     if (!palette) {
       try {
@@ -23,8 +23,7 @@ export function useArtworkTheme() {
         canvas.width = canvas.height = 32;
         const context = canvas.getContext("2d", { willReadFrequently: true });
         if (!context) throw new Error("Canvas sampling unavailable");
-        context.filter = filter;
-        const crop = Math.min(image.naturalWidth, image.naturalHeight) / scale;
+        const crop = Math.min(image.naturalWidth, image.naturalHeight);
         context.drawImage(
           image,
           (image.naturalWidth - crop) / 2,
@@ -37,23 +36,36 @@ export function useArtworkTheme() {
           32,
         );
         const pixels = context.getImageData(0, 0, 32, 32).data;
-        const average = (start: number, end: number, shade: number) => {
+        const average = (start: number, end: number, shade: number, colorWeight = 0) => {
           const sum = [0, 0, 0];
-          let count = 0;
+          let totalWeight = 0;
           for (let row = start; row < end; row++)
             for (let col = 0; col < 32; col++) {
               const offset = (row * 32 + col) * 4;
               if (pixels[offset + 3] < 128) continue;
+              let weight = 1;
+              if (colorWeight) {
+                const red = pixels[offset];
+                const green = pixels[offset + 1];
+                const blue = pixels[offset + 2];
+                weight += colorWeight * (Math.max(red, green, blue) - Math.min(red, green, blue));
+              }
               for (let channel = 0; channel < 3; channel++)
-                sum[channel] += pixels[offset + channel];
-              count++;
+                sum[channel] += pixels[offset + channel] * weight;
+              totalWeight += weight;
             }
-          return `rgb(${sum.map((value) => Math.round((value / Math.max(count, 1)) * shade)).join(" ")})`;
+          return `rgb(${sum.map((value) => Math.round((value / Math.max(totalWeight, 1)) * shade)).join(" ")})`;
         };
         palette = {
-          top: average(0, 13, 0.64),
-          base: average(10, 27, 0.69),
-          bottom: average(20, 32, 0.58),
+          shared: {
+            base: average(10, 27, 0.69),
+            bottom: average(20, 32, 0.58),
+          },
+          background: {
+            top: average(0, 10, 0.65, 0.1),
+            base: average(15, 28, 0.7, 0.15),
+            bottom: average(28, 32, 0.35),
+          },
         };
         if (palettes.size >= 100) {
           const oldest = palettes.keys().next().value;
@@ -61,12 +73,18 @@ export function useArtworkTheme() {
         }
         palettes.set(key, palette);
       } catch {
-        palette = { top: "#6a7487", base: "#4d596b", bottom: "#343d50" };
+        palette = { shared: { base: "#4d596b", bottom: "#343d50" } };
       }
     }
-    for (const [name, value] of Object.entries(palette))
-      document.documentElement.style.setProperty(`--cover-${name}`, value);
+    const styles = document.documentElement.style;
+    for (const [name, color] of Object.entries(palette.shared))
+      styles.setProperty(`--cover-${name}`, color);
+    for (const name of ["top", "base", "bottom"] as const) {
+      const backgroundColor = palette.background?.[name];
+      if (backgroundColor) styles.setProperty(`--background-cover-${name}`, backgroundColor);
+      else styles.removeProperty(`--background-cover-${name}`);
+    }
     const theme = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-    if (theme) theme.content = palette.base;
+    if (theme) theme.content = palette.shared.base;
   }, []);
 }

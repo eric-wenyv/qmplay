@@ -1100,15 +1100,16 @@ test("mobile home remembers the browsing page and responsive transitions close o
   app.toggleMobileHome();
   assert.equal(app.getSnapshot().navigation.view, "browse");
   app.openQueue();
-  assert.equal(app.getSnapshot().navigation.view, "queue");
+  assert.equal(app.getSnapshot().navigation.view, "browse");
+  assert.equal(app.getSnapshot().navigation.queueOpen, true);
+  app.toggleMobileHome();
+  assert.equal(app.getSnapshot().navigation.view, "player");
   assert.equal(app.getSnapshot().navigation.queueOpen, false);
   app.toggleMobileHome();
-  assert.equal(app.getSnapshot().navigation.view, "player");
-  app.toggleMobileHome();
-  assert.equal(app.getSnapshot().navigation.view, "queue");
+  assert.equal(app.getSnapshot().navigation.view, "browse");
   app.setMenu(true);
   app.setMobile(false);
-  assert.equal(app.getSnapshot().navigation.view, "player");
+  assert.equal(app.getSnapshot().navigation.view, "browse");
   assert.equal(app.getSnapshot().navigation.menuOpen, false);
   app.openQueue();
   assert.equal(app.getSnapshot().navigation.queueOpen, true);
@@ -1116,6 +1117,22 @@ test("mobile home remembers the browsing page and responsive transitions close o
   assert.equal(app.getSnapshot().navigation.view, "browse");
   assert.equal(app.getSnapshot().navigation.queueOpen, false);
   assert.equal(app.session.elapsed, 24);
+});
+
+test("queue history persists the three latest replaced lists and can promote a saved list", async (t) => {
+  const { app, saved } = await setup(t);
+  await app.switchSource("liked");
+  await app.switchSource("artist", artist("singer"));
+  await app.switchSource("album", album("record"));
+  await app.switchSource("radio", { id: "daily" });
+  await app.switchSource("radio", { id: "199" });
+  const sources = (entries) => entries.map(({ source }) => source.resource?.id ?? source.type);
+  assert.deepEqual(sources(app.getSnapshot().playback.history), ["daily", "record", "singer"]);
+  assert.deepEqual(sources(saved.at(-1).queueHistory), ["daily", "record", "singer"]);
+  await app.playQueueHistory(2, 1);
+  assert.equal(app.getSnapshot().playback.source.resource.id, "singer");
+  assert.equal(app.getSnapshot().playback.index, 1);
+  assert.deepEqual(sources(app.getSnapshot().playback.history), ["199", "daily", "record"]);
 });
 
 test("lyrics always follow the newly selected song and ignore stale lyric requests", async (t) => {

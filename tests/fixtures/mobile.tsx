@@ -6,9 +6,14 @@ import { createApplication } from "../../src/application/application.js";
 
 const tracks = Array.from({ length: 24 }, (_, index) => ({
   id: String(index),
-  title: ["STAND UP!!", "火力全开", "半岛铁盒", "She's Got a Way", "ad meliora", "需要人陪"][
-    index % 6
-  ],
+  title: [
+    "STAND UP!! (Live from the original concert tour)",
+    "火力全开",
+    "半岛铁盒",
+    "She's Got a Way",
+    "ad meliora",
+    "需要人陪",
+  ][index % 6],
   artist: ["etsuco", "王力宏", "周杰伦", "Billy Joel", "The Charm Park", "王力宏"][index % 6],
   duration: 253,
 }));
@@ -50,6 +55,7 @@ const app = createApplication({
   mobile: true,
   preferences: {
     queue: tracks,
+    queueHistory: [{ queue: tracks.slice(1, 7), source: { type: "liked" } }],
     currentId: "0",
     hasQueue: true,
     elapsed: 52,

@@ -1,7 +1,16 @@
-import type { Artist, Library, QueueSource, Resource, StorageLike, Track } from "./contracts.js";
+import type {
+  Artist,
+  Library,
+  QueueHistoryEntry,
+  QueueSource,
+  Resource,
+  StorageLike,
+  Track,
+} from "./contracts.js";
 
 const preferenceKey = "qmplay-library-v2";
 const legacyPreferenceKey = "interlude-library-v2";
+export const queueHistoryLimit = 3;
 const record = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -80,6 +89,22 @@ export function artistHistory(history: unknown = []): Artist[] {
 export function rememberArtist(history: Artist[], artist: Artist): Artist[] {
   return artistHistory([artist, ...history.filter((item) => item.id !== artist.id)]);
 }
+export function searchHistory(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const queries = value.flatMap((item) =>
+    typeof item === "string" && item.trim() ? [item.trim().slice(0, 200)] : [],
+  );
+  return [...new Set(queries)].slice(0, 20);
+}
+function queueHistory(value: unknown): QueueHistoryEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, queueHistoryLimit).flatMap((item) => {
+    const data = record(item);
+    const queue = Array.isArray(data.queue) ? data.queue.filter(validTrack) : [];
+    const source = readQueueSource({ queueSource: data.source });
+    return queue.length ? [{ queue, source }] : [];
+  });
+}
 export function readLibrary(storage: StorageLike = globalThis.localStorage): Library {
   try {
     const data = record(
@@ -89,7 +114,9 @@ export function readLibrary(storage: StorageLike = globalThis.localStorage): Lib
       artist = resource(data.artist);
     return {
       queueSource: readQueueSource(data),
+      queueHistory: queueHistory(data.queueHistory),
       artistHistory: artistHistory(data.artistHistory),
+      searchHistory: searchHistory(data.searchHistory),
       hasQueue: Array.isArray(data.queue),
       accountUin: typeof data.accountUin === "string" ? data.accountUin : "",
       liked: Array.isArray(data.liked) ? data.liked.filter(validTrack).slice(0, 5000) : [],
@@ -111,7 +138,9 @@ export function readLibrary(storage: StorageLike = globalThis.localStorage): Lib
   } catch {
     return {
       queueSource: readQueueSource({}),
+      queueHistory: [],
       artistHistory: [],
+      searchHistory: [],
       hasQueue: false,
       liked: [],
       queue: [],
@@ -145,6 +174,11 @@ export function writeLibrary(
       JSON.stringify({
         ...library,
         artistHistory: artistHistory(data.artistHistory),
+        searchHistory: searchHistory(data.searchHistory),
+        queueHistory: (data.queueHistory ?? []).slice(0, queueHistoryLimit).map((entry) => ({
+          source: entry.source,
+          queue: entry.queue.map(clean),
+        })),
         queue: data.queue.map(clean),
         liked: data.liked.map(clean),
       }),

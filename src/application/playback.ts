@@ -1,6 +1,7 @@
 import { AudioTransport, type AudioElementLike } from "../audio.js";
 import { PlayerSession, orderLabels } from "../player.js";
-import type { Library, Resource, SourceType, Track } from "../contracts.js";
+import type { Library, QueueHistoryEntry, Resource, SourceType, Track } from "../contracts.js";
+import { queueHistoryLimit } from "../storage.js";
 import type { ApplicationProvider } from "./provider.js";
 import type { ApplicationStore } from "./store.js";
 import { errorMessage } from "./store.js";
@@ -18,6 +19,15 @@ interface MoreRequest {
   version: number;
   controller: AbortController;
   promise: Promise<boolean>;
+}
+
+function sameQueue(left: QueueHistoryEntry, right: QueueHistoryEntry): boolean {
+  return (
+    left.source?.type === right.source?.type &&
+    left.source?.resource?.id === right.source?.resource?.id &&
+    left.queue.length === right.queue.length &&
+    left.queue.every((track, index) => track.id === right.queue[index]?.id)
+  );
 }
 
 /** Queue ownership and asynchronous playback are independent of browsing and rendering. */
@@ -84,6 +94,7 @@ export class PlaybackController {
   }
   restore(preferences: Library, { load = true } = {}): void {
     this.queueVersion++;
+    this.store.state.playback.history = preferences.queueHistory;
     this.session.order = preferences.order;
     this.session.setQueue(preferences.queue, {
       autoplay: false,
@@ -119,6 +130,7 @@ export class PlaybackController {
     this.queueVersion++;
     this.stop();
     this.transport.stop();
+    this.store.state.playback.history = [];
     this.session.setQueue([], { autoplay: false });
     this.publish();
   }
@@ -131,6 +143,30 @@ export class PlaybackController {
     this.effects.save();
     await this.transport.select(this.session.current, { autoplay, elapsed });
     if (autoplay) this.prefetch();
+  }
+  private replaceQueue(
+    next: QueueHistoryEntry,
+    selection: { trackId?: string; trackIndex?: number },
+  ) {
+    const current = { queue: this.session.queue, source: this.session.source };
+    const playback = this.store.state.playback;
+    const archive = current.queue.length > 0 && !sameQueue(current, next);
+    const history = playback.history.filter(
+      (entry) => !sameQueue(entry, next) && !(archive && sameQueue(entry, current)),
+    );
+    playback.history = (archive ? [current, ...history] : history).slice(0, queueHistoryLimit);
+    this.moreRequest?.controller.abort();
+    this.moreRequest = null;
+    this.store.state.requests.more = false;
+    this.queueVersion++;
+    this.session.setQueue(next.queue, { ...selection, autoplay: false, source: next.source });
+  }
+  async playQueueHistory(index: number, trackIndex?: number): Promise<void> {
+    const entry = this.store.state.playback.history[index];
+    if (!entry || (trackIndex !== undefined && !entry.queue[trackIndex])) return;
+    this.cancelSource();
+    this.replaceQueue(entry, { trackIndex });
+    await this.loadCurrent({ autoplay: true });
   }
   async switchSource(
     type: SourceType,
@@ -167,21 +203,21 @@ export class PlaybackController {
       if (!queue.length) throw new Error("暂时没有可用歌曲，请选择其他来源");
       if (type === "radio" && resource) this.effects.stationLoaded(resource.id, queue);
       this.store.state.requests.source = false;
-      this.moreRequest?.controller.abort();
-      this.queueVersion++;
-      this.session.setQueue(queue, {
-        autoplay: false,
-        trackId,
-        source: {
-          type,
-          ...(resource && { resource }),
-          page: 1,
-          ...(page && { hasMore: page.hasMore }),
-          ...(type === "radio" && resource?.id === "daily" && { hasMore: false }),
+      this.replaceQueue(
+        {
+          queue,
+          source: {
+            type,
+            ...(resource && { resource }),
+            page: 1,
+            ...(page && { hasMore: page.hasMore }),
+            ...(type === "radio" && resource?.id === "daily" && { hasMore: false }),
+          },
         },
-      });
-      await this.loadCurrent({ autoplay });
+        { trackId },
+      );
       this.store.state.announcement = `${type === "liked" ? "喜欢的音乐" : type === "radio" ? "推荐电台" : "歌手电台"}，${queue.length} 首歌曲`;
+      await this.loadCurrent({ autoplay });
     } catch (error) {
       if (version === this.sourceVersion && !signal.aborted)
         this.effects.reportError(errorMessage(error), () =>
@@ -299,11 +335,16 @@ export class PlaybackController {
     this.transport.seek(seconds);
     this.effects.save();
   }
-  async advance(direction: "next" | "previous", automatic = false): Promise<void> {
+  async advance(
+    direction: "next" | "previous",
+    automatic = false,
+    { skipCurrent = false } = {},
+  ): Promise<void> {
     if (!this.session.current) return;
     const version = ++this.advanceVersion;
-    const autoplay = automatic || this.session.playing || this.transport.desiredPlaying;
-    if (direction === "previous" && this.session.elapsed > 3) {
+    const autoplay =
+      skipCurrent || automatic || this.session.playing || this.transport.desiredPlaying;
+    if (!skipCurrent && direction === "previous" && this.session.elapsed > 3) {
       this.seek(0);
       return;
     }
@@ -338,7 +379,9 @@ export class PlaybackController {
       )
         return;
     }
-    direction === "next" ? this.session.next() : this.session.previous();
+    direction === "next"
+      ? this.session.next()
+      : this.session.previous({ restartCurrent: !skipCurrent });
     await this.loadCurrent({ autoplay });
   }
   cycleOrder(): void {

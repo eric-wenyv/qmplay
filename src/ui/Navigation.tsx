@@ -27,7 +27,6 @@ const pageModes = {
   albumTracks: "artist",
   browse: "radio",
   liked: "liked",
-  queue: "queue",
   player: "home",
   lyrics: "home",
 } as const;

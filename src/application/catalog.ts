@@ -1,5 +1,5 @@
 import type { Album, Artist, Track, View } from "../contracts.js";
-import { rememberArtist } from "../storage.js";
+import { rememberArtist, searchHistory } from "../storage.js";
 import type { ApplicationProvider } from "./provider.js";
 import type { NavigationController } from "./navigation.js";
 import { ApplicationStore, errorMessage } from "./store.js";
@@ -48,14 +48,14 @@ export class CatalogController {
   ) {}
   leave(previous: View, next: View, suspended: boolean): void {
     if (suspended) return;
-    if (previous === "search" && next !== "search") this.cancelSearch();
+    if (previous === "search" && next !== "search" && next !== "albums") this.cancelSearch();
     if (previous === "albums" && next !== "albums") {
       this.albumRequest?.controller.abort();
       if (this.albumRequest) this.albumRequest.pending = false;
       this.store.state.requests.albums = false;
     }
     if (previous === "albumTracks" && next !== "albumTracks") this.cancelAlbumTracks();
-    if (previous === "browse" && next !== "browse") {
+    if (previous === "browse" && next !== "browse" && next !== "albums") {
       this.cancelTrackSearch();
     }
   }
@@ -95,7 +95,7 @@ export class CatalogController {
     this.navigation.browse("search");
     void this.search("");
   }
-  async search(query: string): Promise<void> {
+  async search(query: string, { remember = true } = {}): Promise<void> {
     this.cancelSearch();
     const version = this.searchVersion;
     const controller = (this.searchAbort = new AbortController());
@@ -105,6 +105,7 @@ export class CatalogController {
       this.store.publish();
       return;
     }
+    if (remember) this.rememberSearch(query);
     this.store.state.requests.search = true;
     this.store.state.catalog.artists = [];
     this.store.publish();
@@ -153,15 +154,37 @@ export class CatalogController {
     this.store.state.requests.trackSearch = false;
     this.store.publish();
   }
+  setTrackSearchInput(query: string): void {
+    if (!query.trim()) {
+      void this.searchTracks(query);
+      return;
+    }
+    this.store.state.catalog.trackSearchInput = query;
+    this.cancelTrackSearch();
+  }
+  private rememberSearch(query: string): void {
+    const catalog = this.store.state.catalog;
+    catalog.searchHistory = searchHistory([query, ...catalog.searchHistory]);
+    this.effects.save();
+  }
+  removeSearchHistory(query?: string): void {
+    const catalog = this.store.state.catalog;
+    catalog.searchHistory =
+      query === undefined ? [] : catalog.searchHistory.filter((item) => item !== query);
+    this.effects.save();
+    this.store.publish();
+  }
   async searchTracks(query: string): Promise<void> {
     this.cancelTrackSearch();
+    this.store.state.catalog.trackSearchInput = query;
     this.store.state.catalog.trackQuery = query;
     this.store.state.catalog.tracks = [];
     this.store.state.catalog.hasMoreTracks = !!query.trim();
     this.trackSearchPage = 0;
+    if (query.trim()) this.rememberSearch(query);
     this.store.publish();
     await Promise.all([
-      this.search(query),
+      this.search(query, { remember: false }),
       query.trim() ? this.loadMoreTracks() : Promise.resolve(),
     ]);
   }
@@ -210,7 +233,7 @@ export class CatalogController {
   }
   async showArtistAlbums(artist: Artist): Promise<void> {
     this.albumRequest?.controller.abort();
-    this.navigation.browse("albums");
+    this.navigation.openArtist();
     this.store.state.catalog.recentArtists = rememberArtist(
       this.store.state.catalog.recentArtists,
       artist,

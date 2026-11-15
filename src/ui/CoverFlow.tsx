@@ -190,7 +190,7 @@ export function CoverFlow({
                   alt={offset === 0 && track.coverUrl ? `${track.album || track.title} 封面` : ""}
                   width="1024"
                   height="1024"
-                  decoding="sync"
+                  decoding="async"
                   fetchPriority={offset === 0 ? "high" : undefined}
                   draggable={false}
                 />

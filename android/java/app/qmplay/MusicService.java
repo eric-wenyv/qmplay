@@ -27,10 +27,11 @@ public class MusicService extends Service {
     private static final int NOTIFICATION_ID = 1;
     private static final int ARTWORK_SIZE = 256;
     private static MusicService instance;
+    // The native runtime lives for the process, even when its foreground service is recreated.
+    private static boolean runtimeStarted;
     private MediaSession media;
     private PendingIntent openPlayer;
     private PowerManager.WakeLock wake;
-    private boolean started;
     private final ExecutorService artworkLoader = Executors.newSingleThreadExecutor();
     private Future<?> artworkLoad;
     private int artworkRequest;
@@ -70,8 +71,8 @@ public class MusicService extends Service {
 
     @Override public int onStartCommand(Intent intent, int flags, int id) {
         if (intent != null && intent.getAction() != null) MainActivity.dispatch(intent.getAction());
-        if (!started) {
-            started = true;
+        if (!runtimeStarted) {
+            runtimeStarted = true;
             new Thread(this::launch, "qmplay-runtime").start();
         }
         return START_NOT_STICKY;

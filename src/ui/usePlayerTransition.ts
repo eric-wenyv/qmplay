@@ -1,22 +1,27 @@
 import { useEffect, useMemo, useRef } from "react";
 import { flushSync } from "react-dom";
-import type { MusicApplication } from "../contracts.js";
+import type { MusicApplication, View } from "../contracts.js";
+import { createPlayerSharedElements } from "./playerSharedElements.js";
 
 export interface PlayerTransition {
   open(): void;
+  dragOpen(distance: number): void;
+  endOpen(commit: boolean, speed?: number): void;
+  close(): void;
   dragDismiss(distance: number): void;
   endDismiss(commit: boolean): void;
 }
 
 interface Motion {
-  artwork: HTMLElement;
   trackId: string | undefined;
+  view: View;
   progress: number;
   dragOrigin: number | null;
   distance: number;
+  commitOpen?: () => void;
   hold(): void;
   set(progress: number): void;
-  settle(progress: number, complete: () => void): void;
+  settle(progress: number, complete: () => void, speed?: number): void;
   dispose(): void;
 }
 
@@ -29,44 +34,74 @@ export function usePlayerTransition(app: MusicApplication): PlayerTransition {
       active.current = null;
       motion?.dispose();
     };
-    const create = (): Motion | null => {
+    const create = (direction: "opening" | "closing" | "drag-opening"): Motion | null => {
+      const { navigation, playback } = app.getSnapshot();
+      const dragOpening = direction === "drag-opening";
       const root = document.querySelector<HTMLElement>(".player.is-mobile");
       const artwork = root?.querySelector<HTMLElement>(
         ".cover-flow-card[data-offset='0'] .album-art",
       );
       const flight = artwork?.closest<HTMLElement>(".cover-flow-flight");
+      const listening = artwork?.closest<HTMLElement>("#listening-view");
+      const footer = root?.querySelector<HTMLElement>(".player-footer");
       const dock = root?.querySelector<HTMLElement>(".mobile-dock");
       const dockImage = dock?.querySelector<HTMLImageElement>(".dock-cover");
-      const home = root?.querySelector<HTMLElement>("#browse-view");
+      const dockCover = dockImage?.parentElement;
+      const page = navigation.mobilePage ?? "browse";
+      const underlayId = page === "albumTracks" ? "album-tracks-view" : `${page}-view`;
+      const underlay = document.getElementById(underlayId);
       const reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
       if (
         !root ||
         !artwork ||
         !flight ||
+        !listening ||
+        !footer ||
         !dock ||
         !dockImage ||
-        !home ||
+        !dockCover ||
+        !underlay ||
         reduce.matches ||
         !flight.animate
       )
         return null;
+      const locked = new Set<HTMLElement>();
+      const lock = (node: HTMLElement) => {
+        if (node.hasAttribute("inert")) return;
+        locked.add(node);
+        node.setAttribute("inert", "");
+      };
+      const unlock = (node: HTMLElement) => {
+        if (locked.delete(node)) node.removeAttribute("inert");
+      };
+      const restoreLayout = () => {
+        delete root.dataset.playerMotion;
+        root.style.removeProperty("--dismiss-progress");
+        delete underlay.dataset.playerUnderlay;
+        locked.forEach(unlock);
+      };
+      root.dataset.playerMotion = direction;
+      underlay.dataset.playerUnderlay = "";
       const from = artwork.getBoundingClientRect();
-      if (!from.width) return null;
+      if (!from.width) {
+        restoreLayout();
+        return null;
+      }
       const original = {
         transform: flight.style.transform,
         radius: artwork.style.borderRadius,
-        homeInert: home.hasAttribute("inert"),
-        dockInert: dock.hasAttribute("inert"),
       };
       const radius = parseFloat(getComputedStyle(artwork).borderTopLeftRadius) || 0;
-      root.dataset.playerMotion = "true";
-      root.style.setProperty("--dismiss-progress", "0");
-      home.setAttribute("inert", "");
-      dock.setAttribute("inert", "");
-      const to = dockImage.getBoundingClientRect();
+      lock(underlay);
+      if (dragOpening) {
+        lock(listening);
+        lock(footer);
+      } else lock(dock);
+      const to = dockCover.getBoundingClientRect();
       const dx = to.left + to.width / 2 - from.left - from.width / 2;
       const dy = to.top + to.height / 2 - from.top - from.height / 2;
       const targetScale = to.width / from.width;
+      const removeSharedElements = createPlayerSharedElements(root);
       // A dismissed preview blends into the playing artwork without changing playback.
       const image = artwork.querySelector("img");
       const landing =
@@ -102,11 +137,24 @@ export function usePlayerTransition(app: MusicApplication): PlayerTransition {
         animation = rounding = atmosphere = imageBlend = undefined;
       };
       const motion: Motion = {
-        artwork,
-        trackId: app.getSnapshot().playback.current?.id,
+        trackId: playback.current?.id,
+        view: navigation.view,
         progress: 0,
         dragOrigin: null,
-        distance: Math.max(180, Math.min(460, Math.abs(dy))),
+        distance: dragOpening
+          ? Math.max(1, Math.abs(dy))
+          : Math.max(180, Math.min(460, Math.abs(dy))),
+        commitOpen: dragOpening
+          ? () => {
+              motion.view = "player";
+              motion.commitOpen = undefined;
+              root.dataset.playerMotion = "opening";
+              unlock(listening);
+              unlock(footer);
+              lock(dock);
+              flushSync(() => app.returnToPlayer());
+            }
+          : undefined,
         hold() {
           if (animation) {
             const progress = animation.effect?.getComputedTiming().progress;
@@ -122,13 +170,23 @@ export function usePlayerTransition(app: MusicApplication): PlayerTransition {
           root.style.setProperty("--dismiss-progress", String(this.progress));
           if (landing) landing.style.opacity = String(this.progress);
         },
-        settle(progress, complete) {
+        settle(progress, complete, speed = 0) {
           this.hold();
           start = this.progress;
           end = progress;
+          const remaining = Math.abs(end - start);
+          const pixels = remaining * this.distance;
+          let duration = Math.max(110, 450 * remaining);
+          let easing = "cubic-bezier(0.18, 0, 0.82, 1)";
+          if (speed > 0.12 && pixels > 0) {
+            duration = Math.min(duration, Math.max(110, (2.75 * pixels) / speed));
+            // Match the release velocity at the start and bring it to zero at the end.
+            const firstControl = Math.min(0.85, (0.22 * speed * duration) / pixels);
+            easing = `cubic-bezier(0.22, ${firstControl}, 0.52, 1)`;
+          }
           const timing = {
-            duration: Math.max(240, 1000 * Math.abs(end - start)),
-            easing: "cubic-bezier(.22,.75,.2,1)",
+            duration,
+            easing,
             fill: "both" as const,
           };
           // Only transform this persistent layer; clipping and CoverFlow stay on the inner cover.
@@ -165,10 +223,8 @@ export function usePlayerTransition(app: MusicApplication): PlayerTransition {
           flight.style.transform = original.transform;
           artwork.style.borderRadius = original.radius;
           landing?.remove();
-          delete root.dataset.playerMotion;
-          root.style.removeProperty("--dismiss-progress");
-          if (!original.homeInert) home.removeAttribute("inert");
-          if (!original.dockInert) dock.removeAttribute("inert");
+          removeSharedElements?.();
+          restoreLayout();
           reduce.removeEventListener("change", preference);
           window.removeEventListener("resize", clear);
         },
@@ -180,19 +236,65 @@ export function usePlayerTransition(app: MusicApplication): PlayerTransition {
       window.addEventListener("resize", clear);
       return motion;
     };
+    const open = () => {
+      if (app.getSnapshot().navigation.view === "player") return;
+      clear();
+      flushSync(() => app.returnToPlayer());
+      const motion = (active.current = create("opening"));
+      if (!motion) return;
+      motion.set(1);
+      motion.settle(0, clear);
+    };
+    const finishDismiss = (commit: boolean) => {
+      const motion = active.current;
+      const back = () => {
+        if (app.getSnapshot().navigation.view === "player") app.goBack();
+      };
+      if (!motion) {
+        if (commit) back();
+        return;
+      }
+      motion.dragOrigin = null;
+      motion.settle(commit ? 1 : 0, () => {
+        if (commit) flushSync(back);
+        clear();
+      });
+    };
     return {
       clear,
-      open() {
-        clear();
-        flushSync(() => app.returnToPlayer());
-        const motion = (active.current = create());
-        if (!motion) return;
-        motion.set(1);
-        motion.settle(0, clear);
+      open,
+      dragOpen(distance: number) {
+        const { navigation } = app.getSnapshot();
+        if (navigation.view === "player" || navigation.queueOpen || navigation.menuOpen) return;
+        let motion = active.current;
+        if (!motion) {
+          motion = active.current = create("drag-opening");
+          motion?.set(1);
+        }
+        if (!motion?.commitOpen) return;
+        if (motion.dragOrigin === null) {
+          motion.hold();
+          motion.dragOrigin = motion.progress;
+        }
+        motion.set(motion.dragOrigin - Math.max(0, distance) / motion.distance);
+      },
+      endOpen(commit: boolean, speed = 0) {
+        const motion = active.current;
+        if (!motion?.commitOpen) {
+          if (commit) open();
+          return;
+        }
+        motion.dragOrigin = null;
+        if (commit) motion.commitOpen();
+        motion.settle(commit ? 0 : 1, clear, commit ? speed : 0);
+      },
+      close() {
+        if (!active.current) active.current = create("closing");
+        finishDismiss(true);
       },
       dragDismiss(distance: number) {
         let motion = active.current;
-        if (!motion) motion = active.current = create();
+        if (!motion) motion = active.current = create("closing");
         if (!motion) return;
         if (motion.dragOrigin === null) {
           motion.hold();
@@ -200,21 +302,7 @@ export function usePlayerTransition(app: MusicApplication): PlayerTransition {
         }
         motion.set(motion.dragOrigin + Math.max(0, distance) / motion.distance);
       },
-      endDismiss(commit: boolean) {
-        const motion = active.current;
-        if (!motion) {
-          if (commit) void app.showRadio();
-          return;
-        }
-        motion.dragOrigin = null;
-        motion.settle(commit ? 1 : 0, () => {
-          if (commit)
-            flushSync(() => {
-              void app.showRadio();
-            });
-          clear();
-        });
-      },
+      endDismiss: finishDismiss,
     };
   }, [app]);
   useEffect(() => {
@@ -223,7 +311,9 @@ export function usePlayerTransition(app: MusicApplication): PlayerTransition {
       if (!motion) return;
       const state = app.getSnapshot();
       if (
-        state.navigation.view !== "player" ||
+        state.navigation.view !== motion.view ||
+        state.navigation.queueOpen ||
+        state.navigation.menuOpen ||
         state.auth.state !== "ready" ||
         !state.navigation.mobile ||
         state.playback.current?.id !== motion.trackId

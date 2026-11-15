@@ -1,4 +1,4 @@
-import { Fragment, memo, useState, type CSSProperties } from "react";
+import { Fragment, memo, useState, type CSSProperties, type ReactNode } from "react";
 import { artworkUrl, artistsOnTrack } from "../api.js";
 import { formatTime, orderLabels, orderModes } from "../player.js";
 import type { AppSnapshot, Artist, MusicApplication, PlayOrder } from "../contracts.js";
@@ -22,6 +22,7 @@ export function PlayerView({
   wide = false,
   inert,
   selectedIndex,
+  queue,
   onPreview,
   transition,
 }: {
@@ -30,6 +31,7 @@ export function PlayerView({
   wide?: boolean;
   inert: boolean;
   selectedIndex: number;
+  queue: ReactNode;
   onPreview: (index: number) => void;
   transition?: PlayerTransition;
 }) {
@@ -42,8 +44,14 @@ export function PlayerView({
   const singers = artistsOnTrack(current);
   return (
     <>
-      <div id="listening-view" className="listening-view" hidden={!showPlayer || !current}>
-        {mobile ? (
+      <div
+        id="listening-view"
+        className="listening-view"
+        hidden={!showPlayer || (!current && !queue)}
+      >
+        {queue ? (
+          <div className="queue-stage">{queue}</div>
+        ) : mobile ? (
           current && (
             <CoverFlow
               app={app}
@@ -97,7 +105,7 @@ export function PlayerView({
             </span>
           </div>
         )}
-        <div className="track-meta">
+        <div className="track-meta" hidden={!current}>
           <div className="track-copy">
             <h1 id="track-title">{current?.title || "qmplay"}</h1>
             <p id="track-artist">
@@ -149,7 +157,7 @@ export function PlayerView({
         id="empty-view"
         className="empty-view"
         aria-label="暂无歌曲"
-        hidden={!showPlayer || Boolean(current)}
+        hidden={!showPlayer || Boolean(current) || Boolean(queue)}
       >
         <Icon name="heart" className="empty-heart icon-slot" />
         <p id="empty-message">
@@ -375,7 +383,9 @@ const TransportControls = memo(function TransportControls({
               className="icon-button side-control"
               type="button"
               aria-label="播放队列"
-              onClick={() => app.openQueue()}
+              aria-expanded={queueOpen}
+              aria-controls="queue-panel"
+              onClick={() => (queueOpen ? app.closeQueue() : app.openQueue())}
             >
               <Icon name="queue" />
             </button>

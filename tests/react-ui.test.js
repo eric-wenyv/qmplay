@@ -1126,7 +1126,18 @@ test("mobile stations show their first song covers and follow playback, pause an
 });
 
 test("mobile dock and native back preserve playback and open the queue", async (t) => {
-  const player = await mount(t, { mobile: true, startOnHome: true });
+  let minimized = 0;
+  const player = await mount(t, {
+    mobile: true,
+    startOnHome: true,
+    android: {
+      playback() {},
+      minimize() {
+        minimized++;
+      },
+    },
+  });
+  const nativeBack = () => act(async () => window.dispatchEvent(new CustomEvent("qmplay-back")));
   assert.equal(player.app.getSnapshot().navigation.view, "browse");
   assert.equal(document.querySelector("#mode-toggle"), null);
   assert.equal(document.querySelector("#verify-login"), null);
@@ -1135,26 +1146,51 @@ test("mobile dock and native back preserve playback and open the queue", async (
   assert.equal(document.querySelectorAll(".station-card").length, 2);
   await click(".dock-play");
   const loads = player.audio.loads;
-  await click(".dock-track");
+  const dockPlay = document.querySelector(".dock-play");
+  await pointer(dockPlay, "pointerdown", 200, 230);
+  await pointer(dockPlay, "pointermove", 200, 195);
+  await pointer(dockPlay, "pointercancel", 200, 160);
+  assert.equal(player.app.getSnapshot().navigation.view, "browse");
+  await pointer(dockPlay, "pointerdown", 200, 230);
+  await pointer(dockPlay, "pointermove", 200, 175);
+  assert.equal(player.app.getSnapshot().navigation.view, "browse");
+  await pointer(dockPlay, "pointerup", 200, 160);
+  await act(async () => {
+    dockPlay.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+  });
   assert.equal(player.app.getSnapshot().navigation.view, "player");
+  assert.equal(player.audio.paused, false);
   assert.equal(document.querySelector(".mobile-dock").hidden, true);
+  assert.equal(document.querySelector(".mobile-back"), null);
   assert.equal(document.querySelector(".player-dismiss"), null);
-  await act(async () => window.dispatchEvent(new CustomEvent("qmplay-back")));
+  await nativeBack();
   assert.equal(player.app.getSnapshot().navigation.view, "browse");
   assert.notEqual(document.activeElement.id, "track-search-input");
   await click('.mobile-dock button[aria-label="播放队列"]');
-  assert.equal(document.querySelector("#queue-panel").hidden, false);
-  assert.equal(document.activeElement.id, "queue-panel");
+  assert.equal(document.querySelector("#queue-panel").dataset.open, "true");
+  assert(document.querySelector("#queue-panel").classList.contains("queue-dock"));
+  assert.equal(document.activeElement.id, "close-queue");
   await click('#queue-list [data-index="1"]');
   assert.equal(player.app.getSnapshot().playback.current.id, "b");
-  assert.equal(player.app.getSnapshot().navigation.view, "queue");
+  assert.equal(player.app.getSnapshot().navigation.view, "browse");
   await click(".dock-track");
   assert.equal(player.app.getSnapshot().navigation.view, "player");
   await click("#home-toggle");
-  assert.equal(player.app.getSnapshot().navigation.view, "queue");
-  await click(".mobile-back");
+  assert.equal(player.app.getSnapshot().navigation.view, "player");
+  assert(document.querySelector("#listening-view .queue-inline"));
+  assert.equal(document.querySelector(".cover-flow"), null);
+  await nativeBack();
+  assert.equal(player.app.getSnapshot().navigation.view, "player");
+  assert.equal(player.app.getSnapshot().navigation.queueOpen, false);
+  await nativeBack();
   assert.equal(player.app.getSnapshot().navigation.view, "browse");
   assert.equal(player.audio.loads, loads + 2);
+  assert.equal(player.audio.paused, false);
+  await nativeBack();
+  assert.equal(minimized, 0);
+  assert.equal(player.app.getSnapshot().notice, null);
+  await nativeBack();
+  assert.equal(minimized, 1);
   assert.equal(player.audio.paused, false);
 });
 
@@ -1258,8 +1294,35 @@ async function pointer(target, type, x, y = 0) {
   await act(async () => dispatchPointer(target, type, x, y));
 }
 
+test("mobile dock cover follows horizontal swipes and skips directly between tracks", async (t) => {
+  const player = await mount(t, { mobile: true, startOnHome: true });
+  const dock = document.querySelector(".mobile-dock");
+  const cover = dock.querySelector(".dock-cover-window");
+  await pointer(dock, "pointerdown", 130, 100);
+  await pointer(dock, "pointermove", 200, 102);
+  assert(parseFloat(cover.style.getPropertyValue("--dock-drag-offset")) > 0);
+  assert.equal(player.app.getSnapshot().playback.current.id, "a");
+  await pointer(dock, "pointerup", 200, 102);
+  assert.equal(player.app.getSnapshot().playback.current.id, "c");
+  assert.equal(player.audio.paused, false);
+  await pointer(dock, "pointerdown", 220, 100);
+  await pointer(dock, "pointermove", 150, 102);
+  assert(parseFloat(cover.style.getPropertyValue("--dock-drag-offset")) < 0);
+  await pointer(dock, "pointerup", 150, 102);
+  assert.equal(player.app.getSnapshot().playback.current.id, "a");
+  assert.equal(player.app.getSnapshot().navigation.view, "browse");
+});
+
 test("mobile home keeps search and scroll position while cover swipes dismiss or cancel", async (t) => {
   const player = await mount(t, { mobile: true, startOnHome: true });
+  const home = document.querySelector("#browse-view");
+  const shelf = home.querySelector(".station-shelf");
+  assert.equal(home.dataset.searchActive, "false");
+  await act(async () => document.querySelector("#track-search-input").focus());
+  assert.equal(home.dataset.searchActive, "true");
+  assert.equal(document.querySelector(".search-history"), null);
+  assert.equal(home.querySelector(".station-shelf"), shelf);
+  assert.equal(shelf.closest("#radio-results").hasAttribute("inert"), true);
   await input("#track-search-input", "周杰伦");
   await act(async () => {
     document
@@ -1271,6 +1334,8 @@ test("mobile home keeps search and scroll position while cover swipes dismiss or
   assert.equal(results.firstElementChild.className, "search-artists");
   assert(document.querySelector('[data-artist="singer"]'));
   assert(document.querySelector('[data-search-track="a"]'));
+  assert.notEqual(document.activeElement.id, "track-search-input");
+  assert.equal(home.dataset.searchActive, "true");
   results.scrollTop = 234;
   await click(".dock-track");
   const flow = document.querySelector(".cover-flow");
@@ -1292,6 +1357,32 @@ test("mobile home keeps search and scroll position while cover swipes dismiss or
   assert.equal(player.app.getSnapshot().playback.current.id, "a");
   await click('[data-artist="singer"]');
   assert.equal(player.app.getSnapshot().navigation.view, "albums");
+  await click(".dock-track");
+  await act(async () => window.dispatchEvent(new CustomEvent("qmplay-back")));
+  assert.equal(player.app.getSnapshot().navigation.view, "albums");
+  await click(".mobile-back");
+  assert.equal(document.querySelector("#track-results"), results);
+  await act(async () => {
+    document.querySelector("#track-search-input").focus();
+    document.querySelector(".search-back").focus();
+  });
+  await click(".search-back");
+  assert.equal(document.querySelector("#track-results"), null);
+  assert.equal(home.dataset.searchActive, "false");
+  assert.equal(document.querySelector("#radio-results").hasAttribute("inert"), false);
+  await act(async () => document.querySelector("#track-search-input").focus());
+  assert.equal(home.dataset.searchActive, "true");
+  assert.equal(document.querySelector(".history-query").textContent, "周杰伦");
+  await act(async () => document.querySelector(".history-query").focus());
+  await click(".history-query");
+  assert(document.querySelector("#track-results"));
+  await act(async () => window.dispatchEvent(new CustomEvent("qmplay-back")));
+  assert.equal(document.querySelector("#track-results, .search-history"), null);
+  assert.equal(home.dataset.searchActive, "false");
+  await act(async () => document.querySelector("#track-search-input").focus());
+  await click(".history-remove");
+  assert.deepEqual(player.app.getSnapshot().catalog.searchHistory, []);
+  assert.equal(home.dataset.searchActive, "true");
 });
 
 test("mobile favorites highlight the current track and collapse station cards with scroll", async (t) => {

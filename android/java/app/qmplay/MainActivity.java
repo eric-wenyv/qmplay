@@ -9,6 +9,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.DisplayCutout;
+import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.WindowInsets;
@@ -30,7 +31,6 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private volatile int topInset;
     private boolean loaded;
-    private int attempts;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -51,23 +51,28 @@ public class MainActivity extends Activity {
             android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::handleBack);
         content = new FrameLayout(this);
         getWindow().getDecorView().setOnApplyWindowInsetsListener((view, insets) -> applyInsets(insets));
-        TextView loading = new TextView(this);
-        loading.setText("qmplay\n\n正在打开音乐…");
-        loading.setTextColor(Color.WHITE);
-        loading.setGravity(android.view.Gravity.CENTER);
-        content.addView(loading);
         setContentView(content);
         startForegroundService(new Intent(this, MusicService.class));
         handler.post(new Runnable() {
+            private int attempts;
+
             @Override public void run() {
                 if (isFinishing() || isDestroyed()) return;
                 if (MusicService.failure != null) {
-                    loading.setText("音乐服务启动失败\n" + MusicService.failure);
+                    showStartupError("音乐服务启动失败\n" + MusicService.failure);
                 } else if (MusicService.ready) openPlayer();
                 else if (++attempts < 600) handler.postDelayed(this, 100);
-                else loading.setText("音乐服务启动超时，请重新打开应用");
+                else showStartupError("音乐服务启动超时，请重新打开应用");
             }
         });
+    }
+
+    private void showStartupError(String message) {
+        TextView error = new TextView(this);
+        error.setText(message);
+        error.setTextColor(Color.WHITE);
+        error.setGravity(Gravity.CENTER);
+        content.addView(error);
     }
 
     private WindowInsets applyInsets(WindowInsets insets) {

@@ -164,23 +164,20 @@ test(
                   : FavoritesView,
             {
               app: {},
+              placement: mode === "mobile" ? "dock" : "desktop",
               snapshot: {
                 navigation: {
                   view:
-                    feature === "songs"
-                      ? "browse"
-                      : feature === "album"
-                        ? "albumTracks"
-                        : feature === "queue" && mode === "mobile"
-                          ? "queue"
-                          : "liked",
+                    feature === "songs" ? "browse" : feature === "album" ? "albumTracks" : "liked",
                   mobile: mode === "mobile",
                   queueOpen: true,
                 },
-                playback: { queue: liked, index: 0, source: null },
+                playback: { queue: liked, index: 0, source: null, history: [] },
                 library: { liked },
                 catalog: {
                   trackQuery: "测试歌曲",
+                  trackSearchInput: "测试歌曲",
+                  searchHistory: [],
                   tracks: liked,
                   hasMoreTracks: false,
                   album: { id: "album", name: "测试专辑" },
@@ -195,10 +192,10 @@ test(
         const srcDoc = `<!doctype html><html><head><meta charset="utf-8"><style>${css}
         * { animation: none !important; transition: none !important; }</style></head>
       <body class="${mode === "desktop" ? "desktop" : ""}">
-        <main class="player ${mode === "wide" ? "is-wide" : ""}"><header class="topbar"></header>
+        <main class="player ${mode === "wide" ? "is-wide" : mode === "mobile" && feature === "queue" ? "is-mobile" : ""}"><header class="topbar"></header>
           ${mode === "wide" ? '<nav class="desktop-nav"><button></button></nav>' : ""}
-          <section class="main-stage">${feature === "queue" && mode !== "mobile" ? "" : view}</section>
-          <footer class="player-footer"></footer>${feature === "queue" && mode !== "mobile" ? view : ""}
+          <section class="main-stage">${feature === "queue" ? "" : view}</section>
+          <footer class="player-footer"></footer>${feature === "queue" ? view : ""}
         </main>
       </body></html>`;
         return renderToStaticMarkup(
@@ -971,7 +968,7 @@ for (const reducedMotion of [false, true]) {
 }
 
 test(
-  "mobile glass home and player fit narrow screens, share artwork and reverse the cover transition",
+  "mobile glass home and player fit narrow screens and reverse their shared transition",
   {
     skip: !browser && "Install Chrome/Chromium for mobile layout checks",
     timeout: 40000,
@@ -1034,15 +1031,45 @@ test(
       };
       const dismiss = () => { pointer("pointerdown", 100); pointer("pointermove", 240); pointer("pointerup", 240); };
       const bounds = selector => doc.querySelector(selector).getBoundingClientRect();
+      const shared = [
+        ["title", "#track-title", ".dock-copy > strong"],
+        ["artist", "#track-artist", ".dock-copy > span"],
+        ["like", "#like-toggle > .icon-slot", ".dock-like > .icon-slot"],
+        ["play", ".wheel-play-face", ".dock-play > .icon-slot"],
+        ["queue", "#home-toggle > .icon-slot", "#dock-queue-toggle > .icon-slot"],
+      ];
+      const copies = () => shared.map(([name]) => bounds('[data-shared-part="' + name + '"]'));
+      const sameRects = (first, second) => first.every((rect, index) =>
+        ["left", "top", "width", "height"].every(key => Math.abs(rect[key] - second[index][key]) < .1));
+      const dockControls = shared.map(([, , selector]) => bounds(selector));
       const dock = bounds(".mobile-dock"), search = bounds("#track-search");
       const home = doc.querySelector("#radio-results");
+      const queueMotion = win.getComputedStyle(doc.querySelector(".queue-dock"));
       const checks = {
         name: frame.title,
         fits: doc.body.scrollWidth === win.innerWidth && dock.left >= 0 && dock.right <= win.innerWidth && dock.bottom <= win.innerHeight,
         searchPill: win.getComputedStyle(doc.querySelector("#track-search")).borderRadius === "30px" && search.top >= 0,
         glass: win.getComputedStyle(doc.querySelector(".mobile-dock")).backdropFilter.includes("blur"),
         minimal: !doc.querySelector("#mode-toggle, #verify-login, #search-view") && doc.querySelectorAll(".station-card").length === 2,
+        queueEasing: queueMotion.transitionDuration.split(",")[0] === "0.21s" &&
+          queueMotion.transitionTimingFunction.split(",")[0] === "ease-in-out",
       };
+      const field = doc.querySelector("#track-search-input");
+      win.mobileTest.flush(() => field.focus());
+      checks.emptySearchBlurs = !doc.querySelector(".search-history") &&
+        doc.querySelector(".station-shelf").getBoundingClientRect().height > 0 &&
+        home.hasAttribute("inert") &&
+        win.getComputedStyle(doc.querySelector("#browse-view"), "::before").backdropFilter === "blur(18px)";
+      win.mobileTest.flush(() => field.blur());
+      win.mobileTest.flush(() => { void win.mobileTest.app.searchTracks("周杰伦"); });
+      await wait();
+      const searchResults = doc.querySelector("#track-results");
+      searchResults.scrollTop = searchResults.scrollHeight;
+      const dockTarget = doc.elementFromPoint(dock.left + 25, dock.top + 25);
+      checks.searchReachesBottom = Math.abs(bounds("#track-results").bottom - bounds("#browse-view").bottom) <= 1;
+      checks.searchDockAccessible = !!dockTarget?.closest(".mobile-dock") &&
+        [...searchResults.querySelectorAll("[data-search-track]")].at(-1)?.getBoundingClientRect().bottom <= dock.top;
+      win.mobileTest.flush(() => doc.querySelector(".search-back").click());
       win.mobileTest.flush(() => { home.scrollTop = 230; home.dispatchEvent(new win.Event("scroll")); });
       await wait();
       checks.collapse = doc.querySelector(".station-shelf").dataset.collapsed === "true";
@@ -1059,14 +1086,50 @@ test(
       const opening = doc.getAnimations().filter(a => a.effect.getTiming().iterations !== Infinity);
       opening.forEach(a => a.pause());
       const duration = coverAnimation.effect.getTiming().duration;
-      checks.slower = duration >= 1000;
+      const timeOpening = ratio => opening.forEach(a => { a.currentTime = duration * ratio; });
+      const sharedLayer = doc.querySelector(".player-shared-elements");
+      timeOpening(0);
+      checks.controlsStartAtDock = sameRects(copies(), dockControls);
+      checks.copiesAreVisualOnly = sharedLayer.getAttribute("aria-hidden") === "true" &&
+        win.getComputedStyle(sharedLayer).pointerEvents === "none" && shared.every(([, player, dock]) =>
+          [player, dock].every(selector => win.getComputedStyle(doc.querySelector(selector)).visibility === "hidden"));
+      timeOpening(0.5);
+      const mid = copies();
+      const sharedText = name => sharedLayer.querySelector('[data-shared-part="' + name + '"] span');
+      const titleStyle = win.getComputedStyle(sharedText("title"));
+      checks.longTitleFits = sharedText("title").scrollWidth > sharedText("title").clientWidth &&
+        titleStyle.textOverflow === "ellipsis" && titleStyle.whiteSpace === "nowrap";
+      await win.mobileTest.app.play();
+      await wait();
+      checks.pauseGlyphFollowsPlayback = win.getComputedStyle(sharedLayer.querySelector(".shared-play-pause")).opacity === "1";
+      win.mobileTest.flush(() => win.mobileTest.app.pause());
+      checks.playGlyphFollowsPlayback = win.getComputedStyle(sharedLayer.querySelector(".shared-play-triangle")).opacity === "1";
+      timeOpening(1);
+      const playerControls = shared.map(([, selector]) => bounds(selector));
+      checks.controlsReachPlayer = sameRects(copies(), playerControls) &&
+        mid.every((rect, index) => rect.top < dockControls[index].top && rect.top > playerControls[index].top);
+      checks.coverEasing = duration === 450 &&
+        coverAnimation.effect.getTiming().easing === "cubic-bezier(0.18, 0, 0.82, 1)";
+      const backdrop = doc.querySelector(".player-motion-backdrop");
+      const backgroundBlur = () => parseFloat(win.getComputedStyle(backdrop).backdropFilter.slice(5));
+      const sideCover = doc.querySelector('.cover-flow-card[data-offset="1"]');
+      const metadata = doc.querySelector(".track-meta");
+      opening.forEach(a => { a.currentTime = duration * 0.6; });
+      const dockDuringTransition = bounds(".mobile-dock");
+      checks.dockKeepsItsSize = Math.abs(dockDuringTransition.width - dock.width) < .1 &&
+        Math.abs(dockDuringTransition.height - dock.height) < .1;
+      checks.foregroundBlurs = [sideCover, metadata].every(node => {
+        const style = win.getComputedStyle(node);
+        return style.filter.startsWith("blur(") && parseFloat(style.filter.slice(5)) > 0 &&
+          Number(style.opacity) > 0;
+      });
       const innerTransform = win.getComputedStyle(artwork).transform;
       const frames = [];
       checks.stableImage = true;
       for (let step = 0; step <= 60; step++) {
         opening.forEach(a => { a.currentTime = duration * step / 60; });
         const rect = artwork.getBoundingClientRect();
-        frames.push({width:rect.width, top:rect.top});
+        frames.push({width:rect.width, top:rect.top, blur:backgroundBlur()});
         checks.stableImage &&= doc.querySelector("#cover-image") === originalImage && originalImage.complete &&
           originalImage.naturalWidth > 0 && win.getComputedStyle(artwork).transform === innerTransform &&
           win.getComputedStyle(originalImage).visibility === "visible" &&
@@ -1075,6 +1138,9 @@ test(
       }
       checks.continuousOpen = frames.every((rect, index) => index === 0 ||
         rect.width >= frames[index-1].width && rect.top <= frames[index-1].top);
+      checks.progressiveBlur = frames[0].blur === 0 && frames[60].blur === 0 &&
+        frames[15].blur > 0 && frames[15].blur < frames[30].blur &&
+        Math.abs(frames[30].blur - 18) < .1 && frames[45].blur > 0 && frames[45].blur < frames[30].blur;
       const lastFrame = artwork.getBoundingClientRect();
       const lastRadius = win.getComputedStyle(artwork).borderRadius;
       finish(); await wait();
@@ -1083,7 +1149,48 @@ test(
       const resting = artwork.getBoundingClientRect();
       checks.noHandoffJump = Math.abs(resting.left - lastFrame.left) < .1 && Math.abs(resting.top - lastFrame.top) < .1 &&
         Math.abs(resting.width - lastFrame.width) < .1 && win.getComputedStyle(artwork).borderRadius === lastRadius;
-      checks.openClean = !doc.querySelector("[data-player-motion]") && !flight.style.transform && !originalImage.style.visibility;
+      checks.openClean = !doc.querySelector("[data-player-motion], .player-shared-elements") && !flight.style.transform && !originalImage.style.visibility;
+      win.mobileTest.flush(() => doc.querySelector("#home-toggle").click());
+      finish();
+      const inlineQueue = win.getComputedStyle(doc.querySelector(".queue-inline"));
+      checks.plainQueue = inlineQueue.borderTopWidth === "0px" && inlineQueue.backgroundColor === "rgba(0, 0, 0, 0)";
+      checks.queueAlignsWithCover = Math.abs(bounds(".queue-inline").top - cover.top) < 1;
+      const queueList = doc.querySelector("#queue-list");
+      const strip = doc.querySelector(".queue-list-strip");
+      const queuePointer = (type, clientX) => win.mobileTest.flush(() => queueList.dispatchEvent(
+        new win.PointerEvent(type, {
+          bubbles:true, cancelable:true, pointerId:11, isPrimary:true, pointerType:"touch", button:0, clientX, clientY:140,
+        }),
+      ));
+      const swipeQueue = (from, to) => {
+        queuePointer("pointerdown", from);
+        queuePointer("pointermove", to);
+        queuePointer("pointerup", to);
+      };
+      const endTransform = () => strip.getAnimations()[0]?.effect.getKeyframes().at(-1).transform;
+      const finishQueue = () => {
+        const animation = strip.getAnimations()[0];
+        animation.finish();
+        // Headless virtual time can advance timers before the next animation frame.
+        win.mobileTest.flush(() => animation.dispatchEvent(new win.Event("finish")));
+      };
+      queuePointer("pointerdown", 220);
+      queuePointer("pointermove", 110);
+      await wait();
+      checks.historyFollowsFinger = strip.style.transform === "translateX(-110px)" &&
+        doc.querySelector(".queue-list-preview").hasAttribute("inert");
+      queuePointer("pointerup", 110);
+      checks.historySlides = endTransform() === "translateX(-100%)";
+      checks.noSourceLabel = doc.querySelector(".queue-pages").textContent.trim() === "";
+      finishQueue();
+      swipeQueue(220, 110);
+      checks.historyStopsAtEnd = !doc.querySelector(".queue-list-preview") &&
+        doc.querySelector("#queue-count").textContent === "06";
+      finishQueue();
+      swipeQueue(110, 220);
+      checks.historySlidesBack = endTransform() === "translateX(100%)";
+      finishQueue();
+      win.mobileTest.flush(() => doc.querySelector("#close-queue").click());
       win.mobileTest.flush(() => doc.querySelector("#album-art").dispatchEvent(new win.KeyboardEvent("keydown", {key:"ArrowRight",bubbles:true})));
       finish(); await wait();
       const title = doc.querySelector(".cover-flow-title");
@@ -1095,15 +1202,18 @@ test(
       const firstDrag = bounds("#cover-image");
       pointer("pointermove", 200);
       const secondDrag = bounds("#cover-image");
+      const secondDragControls = copies();
       checks.continuousDrag = firstDrag.width < beforeDrag.width && secondDrag.width < firstDrag.width &&
         firstDrag.top > beforeDrag.top && secondDrag.top > firstDrag.top && win.mobileTest.app.getSnapshot().navigation.view === "player";
       checks.homeRevealed = win.getComputedStyle(doc.querySelector("#browse-view")).display === "flex" && doc.querySelector("#browse-view").hasAttribute("inert");
       pointer("pointercancel", 200);
       const cancelStart = bounds("#cover-image");
       checks.cancelContinuous = Math.abs(cancelStart.width-secondDrag.width) < .1 && Math.abs(cancelStart.top-secondDrag.top) < .1;
+      checks.controlsCancelContinuously = sameRects(copies(), secondDragControls);
       finish(); await wait();
       checks.cancelRestores = !doc.querySelector("[data-player-motion]") && Math.abs(bounds("#cover-image").width-beforeDrag.width)<.1 &&
-        win.mobileTest.app.getSnapshot().navigation.view === "player" && title.textContent.trim() === "火力全开";
+        win.mobileTest.app.getSnapshot().navigation.view === "player" && title.textContent.trim() === "火力全开" &&
+        !doc.querySelector(".player-shared-elements");
       dismiss();
       checks.reverse = !!doc.querySelector("[data-player-motion]");
       const closing = doc.getAnimations().filter(a => a.effect.getTiming().iterations !== Infinity);
@@ -1123,23 +1233,79 @@ test(
       const landing = bounds(".dock-cover");
       checks.dockAligned = Math.abs(previous.left-landing.left)<.1 && Math.abs(previous.top-landing.top)<.1 &&
         Math.abs(previous.width-landing.width)<.1;
+      checks.controlsReturnToDock = sameRects(copies(), dockControls);
       finish(); await wait();
       checks.retained = home.scrollTop === 230 && !doc.querySelector(".mobile-dock").hidden;
       checks.noAutofocus = doc.activeElement.id !== "track-search-input";
       checks.noHandle = !doc.querySelector(".player-dismiss");
-      // Sampling two actual image loads must update the shared palette regardless of page.
+      // The same artwork gradient must stay in place across page changes.
       const sampler = doc.querySelector(".artwork-background img");
-      const setColor = async color => {
+      sampler.decode = () => Promise.resolve();
+      const appBackground = () => win.getComputedStyle(doc.querySelector(".player")).backgroundImage;
+      const setColors = async (top, middle = top, bottom = middle) => {
         const canvas = doc.createElement("canvas"); canvas.width = canvas.height = 32;
-        const context = canvas.getContext("2d"); context.fillStyle = color; context.fillRect(0,0,32,32);
+        const context = canvas.getContext("2d");
+        for (const [color, y, height] of [[top, 0, 10], [middle, 10, 18], [bottom, 28, 4]]) {
+          context.fillStyle = color;
+          context.fillRect(0, y, 32, height);
+        }
         await new Promise(resolve => { sampler.addEventListener("load", resolve, {once:true}); sampler.src = canvas.toDataURL(); });
-        return doc.documentElement.style.getPropertyValue("--cover-top");
+        await new Promise(resolve => win.setTimeout(resolve, 460));
+        return appBackground();
       };
-      const warm = await setColor("#e08040");
-      win.mobileTest.flush(() => doc.querySelector(".dock-track").click());
+      const bandedBackground = await setColors("#80a5cd", "#d6ad85", "#675044");
+      checks.backgroundSamplesArtworkBands = bandedBackground.startsWith("linear-gradient(") &&
+        ["rgb(83, 107, 133)", "rgb(150, 121, 93)", "rgb(36, 28, 24)"].every(color => bandedBackground.includes(color));
+      const dockTrack = doc.querySelector(".dock-track");
+      dockTrack.closest(".mobile-dock").setPointerCapture = () => {};
+      const dockPointer = (type, rise, time) => {
+        const event = new win.PointerEvent(type, {
+          bubbles:true, cancelable:true, pointerId:10, isPrimary:true, pointerType:"touch", button:0,
+          clientX:60, clientY:dock.bottom - 15 - rise,
+        });
+        Object.defineProperty(event, "timeStamp", { value:time });
+        win.mobileTest.flush(() => dockTrack.dispatchEvent(event));
+      };
+      const dockCover = bounds(".dock-cover");
+      const centerY = rect => rect.top + rect.height / 2;
+      dockPointer("pointerdown", 0, 10);
+      dockPointer("pointermove", 30, 30);
+      const raised = bounds("#cover-image");
+      checks.dockOpeningFollowsFinger = Math.abs(centerY(raised) - centerY(dockCover) + 30) < .1 &&
+        raised.width > dockCover.width && win.mobileTest.app.getSnapshot().navigation.view === "browse";
+      dockPointer("pointercancel", 30, 45);
+      finish(); await wait();
+      checks.dockOpeningCancelRestoresHome = !doc.querySelector("[data-player-motion]") &&
+        win.mobileTest.app.getSnapshot().navigation.view === "browse" && !dockTrack.closest(".mobile-dock").hidden;
+      const openingCoverMotion = () => doc.querySelector(".cover-flow-card[data-offset='0'] .cover-flow-flight").getAnimations()[0];
+      dockPointer("pointerdown", 0, 100);
+      dockPointer("pointermove", 15, 125);
+      const initialDragBlur = backgroundBlur();
+      dockPointer("pointermove", 70, 150);
+      const beforeRelease = bounds("#cover-image");
+      const releaseBlur = backgroundBlur();
+      checks.dockBlurFollowsFinger = initialDragBlur > 0 && releaseBlur > initialDragBlur;
+      dockPointer("pointerup", 70, 280);
+      const stoppedOpening = openingCoverMotion();
+      doc.getAnimations().filter(a => a.effect.getTiming().iterations !== Infinity).forEach(a => {
+        a.pause(); a.currentTime = 0;
+      });
+      const afterRelease = bounds("#cover-image");
+      checks.pausedSwipeUsesClickEasing = stoppedOpening.effect.getTiming().easing === "cubic-bezier(0.18, 0, 0.82, 1)" &&
+        Math.abs(afterRelease.width - beforeRelease.width) < .1 && Math.abs(afterRelease.top - beforeRelease.top) < .1;
+      checks.blurContinuesOnRelease = Math.abs(backgroundBlur() - releaseBlur) < .1;
+      finish(); await wait();
+      checks.backgroundSharedAcrossPages = appBackground() === bandedBackground;
+      dismiss(); finish(); await wait();
+      dockPointer("pointerdown", 0, 300);
+      dockPointer("pointermove", 30, 320);
+      dockPointer("pointermove", 70, 340);
+      dockPointer("pointerup", 70, 345);
+      const movingOpening = openingCoverMotion().effect.getTiming();
+      checks.movingSwipeCarriesSpeed = movingOpening.easing.startsWith("cubic-bezier(0.22,") && movingOpening.duration < duration;
       // A new downward drag must take over an unfinished opening without jumping.
       const interrupted = doc.getAnimations().filter(a => a.effect.getTiming().iterations !== Infinity);
-      interrupted.forEach(a => { a.pause(); a.currentTime = 400; });
+      interrupted.forEach(a => { a.pause(); a.currentTime = movingOpening.duration / 2; });
       const beforeInterrupt = bounds("#cover-image");
       win.mobileTest.flush(() => {
         pointer("pointerdown", 100); pointer("pointermove", 111); pointer("pointermove", 100);
@@ -1148,15 +1314,37 @@ test(
       checks.interruptContinuous = Math.abs(beforeInterrupt.width-afterInterrupt.width)<.1 &&
         Math.abs(beforeInterrupt.top-afterInterrupt.top)<.1;
       pointer("pointercancel", 100); finish(); await wait();
-      const cool = await setColor("#4080e0");
-      checks.palette = warm !== cool && cool.startsWith("rgb(");
+      const cool = await setColors("#4080e0");
+      checks.palette = bandedBackground !== cool && cool.includes("rgb(42, 83, 146)");
       dismiss();
+      finish(); await wait();
+      const enteringCover = doc.querySelector(".dock-cover");
+      enteringCover.decode = () => Promise.resolve();
+      win.mobileTest.flush(() => {
+        for (const [type, clientX] of [["pointerdown", 60], ["pointermove", 130], ["pointerup", 130]]) {
+          dockTrack.dispatchEvent(new win.PointerEvent(type, {
+            bubbles:true, pointerId:11, isPrimary:true, pointerType:"touch", button:0, clientX, clientY:dock.top + 20,
+          }));
+        }
+      });
+      await wait();
+      const leavingCover = doc.querySelector(".dock-cover-leaving");
+      const enterCover = enteringCover.getAnimations()[0];
+      const leaveCover = leavingCover?.getAnimations()[0];
+      checks.roundDockSlide = false;
+      if (enterCover && leaveCover) {
+        for (const animation of [enterCover, leaveCover]) { animation.pause(); animation.currentTime = 90; }
+        checks.roundDockSlide = win.getComputedStyle(enteringCover.parentElement).overflow === "visible" &&
+          [enteringCover, leavingCover].every(cover => win.getComputedStyle(cover).borderRadius === "50%") &&
+          Math.abs(leavingCover.getBoundingClientRect().left - enteringCover.getBoundingClientRect().right - 7) < .1;
+      }
       win.mobileTest.unmount();
-      checks.cleanup = !doc.querySelector("[data-player-motion], .dismiss-artwork");
+      checks.cleanup = !doc.querySelector("[data-player-motion], .dismiss-artwork, .player-shared-elements");
       return checks;
     }));
     document.querySelector("#layout-results").textContent = JSON.stringify(results);
   });</script>`,
+      ["--virtual-time-budget=3000"],
     );
     for (const { name, ...checks } of results)
       for (const [check, passed] of Object.entries(checks))

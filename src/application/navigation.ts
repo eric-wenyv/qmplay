@@ -7,9 +7,9 @@ const pageModes: Partial<Record<View, NavigationMode>> = {
   albumTracks: "artist",
   browse: "radio",
   liked: "liked",
-  queue: "queue",
 };
 export class NavigationController {
+  private artistParent: View | null = null;
   constructor(
     private store: ApplicationStore,
     private leave: (previous: View, next: View, suspended: boolean) => void,
@@ -17,13 +17,19 @@ export class NavigationController {
   ) {}
   isPageActive(view: View): boolean {
     const nav = this.store.state.navigation;
-    return nav.view === view || (nav.mobile && nav.mobilePage === view);
+    const page = nav.mobile ? nav.mobilePage : nav.view;
+    return (
+      nav.view === view ||
+      page === view ||
+      ((page === "albums" || page === "albumTracks") && this.artistParent === view)
+    );
   }
   setView(view: View): void {
     const nav = this.store.state.navigation;
     const mode = pageModes[view];
     const previous = nav.mobile ? nav.mobilePage : nav.view;
     if (previous) this.leave(previous, view, nav.mobile && !mode);
+    if (nav.view !== view) nav.queueOpen = false;
     if (nav.mobile && mode) {
       nav.mobilePage = view;
       nav.mobileMode = mode;
@@ -38,6 +44,27 @@ export class NavigationController {
   }
   returnToPlayer(): void {
     this.browse("player");
+  }
+  openArtist(): void {
+    const { view, mobile, mobilePage } = this.store.state.navigation;
+    if (view !== "albums" && view !== "albumTracks") {
+      this.artistParent = mobile && view === "player" ? (mobilePage ?? "browse") : view;
+    }
+    this.browse("albums");
+  }
+  goBack(): boolean {
+    const nav = this.store.state.navigation;
+    if (nav.queueOpen) this.closeQueue();
+    else if (nav.menuOpen) this.setMenu(false);
+    else if (nav.view === "albumTracks") this.browse("albums");
+    else if (nav.view === "albums")
+      this.browse(this.artistParent ?? (nav.mobile ? "browse" : "player"));
+    else if (nav.view === "lyrics") this.returnToPlayer();
+    else if (nav.mobile && nav.view === "player") this.setView(nav.mobilePage ?? "browse");
+    else if (nav.mobile && nav.view !== "browse") this.browse("browse");
+    else if (!nav.mobile && nav.view !== "player") this.returnToPlayer();
+    else return false;
+    return true;
   }
   toggleMobileHome(): void {
     const nav = this.store.state.navigation;
@@ -55,7 +82,6 @@ export class NavigationController {
     nav.menuOpen = false;
     nav.queueOpen = false;
     nav.mobile = mobile;
-    if (!mobile && nav.view === "queue") nav.view = "player";
     const mode = pageModes[nav.view];
     if (mobile && mode) {
       nav.mobilePage = nav.view;
@@ -65,20 +91,13 @@ export class NavigationController {
   }
   openQueue(): void {
     const nav = this.store.state.navigation;
-    if (nav.mobile) {
-      this.browse("queue");
-      return;
-    }
+    if (nav.mobile && nav.view === "lyrics") this.returnToPlayer();
     nav.menuOpen = false;
     nav.queueOpen = true;
     this.store.publish();
   }
   closeQueue(): void {
     const nav = this.store.state.navigation;
-    if (nav.view === "queue") {
-      this.returnToPlayer();
-      return;
-    }
     if (!nav.queueOpen) return;
     nav.queueOpen = false;
     this.store.publish();

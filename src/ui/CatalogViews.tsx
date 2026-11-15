@@ -3,6 +3,7 @@ import { artworkUrl } from "../api.js";
 import type { AppSnapshot, Artist, MusicApplication } from "../contracts.js";
 import { Icon } from "./Icon.js";
 import { TrackRow } from "./TrackRow.js";
+import { SearchHistory } from "./SearchHistory.js";
 
 function ArtistRow({ app, artist }: { app: MusicApplication; artist: Artist }) {
   return (
@@ -32,6 +33,7 @@ export function SearchView({ app, snapshot }: { app: MusicApplication; snapshot:
   const [composing, setComposing] = useState(false);
   const [inputRevision, setInputRevision] = useState(0);
   const issuedRevision = useRef(0);
+  const input = useRef<HTMLInputElement>(null);
   const results = useRef<HTMLDivElement>(null);
   const previousView = useRef(snapshot.navigation.view);
   const active =
@@ -104,13 +106,17 @@ export function SearchView({ app, snapshot }: { app: MusicApplication; snapshot:
           event.preventDefault();
           if (!composing) {
             issuedRevision.current = inputRevision;
-            void app.search(query);
+            void app.search(query).then(() => {
+              if (input.current?.value === query && app.getSnapshot().catalog.query === query)
+                input.current.blur();
+            });
           }
         }}
       >
         <Icon name="search" />
         <input
           id="search-input"
+          ref={input}
           type="search"
           placeholder="想听谁的歌？"
           aria-label="搜索歌手"
@@ -143,6 +149,18 @@ export function SearchView({ app, snapshot }: { app: MusicApplication; snapshot:
         aria-label="歌手搜索结果"
         aria-busy={snapshot.requests.search || stale}
       >
+        {!query.trim() && (
+          <SearchHistory
+            app={app}
+            queries={snapshot.catalog.searchHistory}
+            onSearch={(value) => {
+              issuedRevision.current = inputRevision + 1;
+              setInputRevision(inputRevision + 1);
+              setQuery(value);
+              void app.search(value);
+            }}
+          />
+        )}
         {snapshot.requests.search || stale ? (
           <p className="results-message">正在寻找声音…</p>
         ) : (

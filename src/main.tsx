@@ -4,6 +4,7 @@ import { createApplication } from "./application/application.js";
 import { App } from "./ui/App.js";
 import type { Quality, StorageLike } from "./contracts.js";
 import { openQqLogin } from "./platform/qqLogin.js";
+import { mobileViewportQuery } from "./platform/usePlatform.js";
 import "./styles.css";
 
 const audio = new Audio();
@@ -36,6 +37,7 @@ const app = createApplication({
   provider,
   audio,
   storage,
+  mobile: !window.qmplayDesktop && window.matchMedia(mobileViewportQuery).matches,
   openQqLogin: window.qmplayAndroid ? openQqLogin : undefined,
 });
 const container = document.getElementById("root");

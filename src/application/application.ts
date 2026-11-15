@@ -48,6 +48,7 @@ export class Application implements MusicApplication {
   private refreshInFlight: Promise<void> | null = null;
   private lastRefresh = 0;
   private generation = 0;
+  private backgroundRequest: { at: number; navigation: AppSnapshot["navigation"] } | null = null;
   private now: () => number;
 
   constructor(private options: ApplicationOptions) {
@@ -68,6 +69,7 @@ export class Application implements MusicApplication {
         loading: false,
         order: preferences.order,
         source: preferences.queueSource,
+        history: preferences.queueHistory,
       },
       navigation: {
         view: options.mobile ? "browse" : "player",
@@ -80,6 +82,7 @@ export class Application implements MusicApplication {
       auth: { state: "checking", message: "正在恢复登录…" },
       catalog: {
         query: "",
+        searchHistory: preferences.searchHistory,
         artists: [],
         recentArtists: preferences.artistHistory,
         artist: null,
@@ -92,6 +95,7 @@ export class Application implements MusicApplication {
           { id: "daily", name: "每日30首", group: "每天遇见新的喜欢", coverUrl: "" },
         ],
         trackQuery: "",
+        trackSearchInput: "",
         tracks: [],
         hasMoreTracks: false,
         hasMoreAlbums: false,
@@ -206,6 +210,8 @@ export class Application implements MusicApplication {
       this.playback.reset();
       Object.assign(this.preferences, {
         queue: [],
+        queueHistory: [],
+        searchHistory: [],
         currentId: "",
         elapsed: 0,
         hasQueue: false,
@@ -215,6 +221,11 @@ export class Application implements MusicApplication {
         },
       });
       this.store.state.catalog.artists = [];
+      this.store.state.catalog.searchHistory = [];
+      this.store.state.catalog.trackQuery = "";
+      this.store.state.catalog.trackSearchInput = "";
+      this.store.state.catalog.tracks = [];
+      this.store.state.catalog.hasMoreTracks = false;
       this.store.state.catalog.albums = [];
       this.store.state.catalog.album = null;
       this.store.state.catalog.albumTracks = [];
@@ -247,7 +258,9 @@ export class Application implements MusicApplication {
         currentIndex: session.index,
         elapsed: session.elapsed,
         queueSource: session.source,
+        queueHistory: this.store.state.playback.history,
         artistHistory: this.store.state.catalog.recentArtists,
+        searchHistory: this.store.state.catalog.searchHistory,
       },
       this.options.storage,
     );
@@ -393,6 +406,24 @@ export class Application implements MusicApplication {
   returnToPlayer(): void {
     this.navigation.returnToPlayer();
   }
+  goBack(backgroundOnHome = false): boolean {
+    const { navigation, catalog } = this.getSnapshot();
+    const previous = this.backgroundRequest;
+    this.backgroundRequest = null;
+    if (
+      !navigation.queueOpen &&
+      !navigation.menuOpen &&
+      navigation.view === "browse" &&
+      catalog.trackSearchInput.trim()
+    ) {
+      this.setTrackSearchInput("");
+    } else if (!this.navigation.goBack() && backgroundOnHome) {
+      const now = this.now();
+      if (previous?.navigation === navigation && now - previous.at < 3000) return true;
+      this.backgroundRequest = { at: now, navigation };
+    }
+    return false;
+  }
   toggleMobileHome(): void {
     this.navigation.toggleMobileHome();
   }
@@ -408,8 +439,18 @@ export class Application implements MusicApplication {
   searchTracks(query: string): Promise<void> {
     return this.catalog.searchTracks(query);
   }
+  setTrackSearchInput(query: string): void {
+    this.backgroundRequest = null;
+    this.catalog.setTrackSearchInput(query);
+  }
   cancelTrackSearch(): void {
     this.catalog.cancelTrackSearch();
+  }
+  removeSearchHistory(query: string): void {
+    this.catalog.removeSearchHistory(query);
+  }
+  clearSearchHistory(): void {
+    this.catalog.removeSearchHistory();
   }
   loadMoreTracks(): Promise<void> {
     return this.catalog.loadMoreTracks();
@@ -460,6 +501,9 @@ export class Application implements MusicApplication {
   advance(direction: "next" | "previous", automatic?: boolean): Promise<void> {
     return this.playback.advance(direction, automatic);
   }
+  skipTrack(direction: "next" | "previous"): Promise<void> {
+    return this.playback.advance(direction, false, { skipCurrent: true });
+  }
   cycleOrder(): void {
     this.playback.cycleOrder();
   }
@@ -468,6 +512,9 @@ export class Application implements MusicApplication {
   }
   closeQueue(): void {
     this.navigation.closeQueue();
+  }
+  playQueueHistory(index: number, trackIndex?: number): Promise<void> {
+    return this.playback.playQueueHistory(index, trackIndex);
   }
   selectTrack(index: number): Promise<void> {
     return this.playback.selectTrack(index);

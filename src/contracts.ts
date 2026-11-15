@@ -54,6 +54,10 @@ export interface QueueSource {
   page?: number;
   hasMore?: boolean;
 }
+export interface QueueHistoryEntry {
+  queue: Track[];
+  source: QueueSource | null;
+}
 export interface LyricLine {
   time: number;
   text: string;
@@ -110,7 +114,9 @@ export interface StorageLike {
 }
 export interface Library {
   queueSource: QueueSource | null;
+  queueHistory: QueueHistoryEntry[];
   artistHistory: Artist[];
+  searchHistory: string[];
   hasQueue: boolean;
   accountUin?: string;
   liked: Track[];
@@ -123,15 +129,7 @@ export interface Library {
   currentIndex?: number;
   elapsed: number;
 }
-export type View =
-  | "player"
-  | "search"
-  | "albums"
-  | "albumTracks"
-  | "browse"
-  | "liked"
-  | "lyrics"
-  | "queue";
+export type View = "player" | "search" | "albums" | "albumTracks" | "browse" | "liked" | "lyrics";
 export type NavigationMode = "home" | "radio" | "liked" | "artist" | "queue";
 export interface AppSnapshot {
   playback: {
@@ -145,6 +143,7 @@ export interface AppSnapshot {
     desiredPlaying: boolean;
     loading: boolean;
     source: QueueSource | null;
+    history: QueueHistoryEntry[];
   };
   navigation: {
     view: View;
@@ -167,7 +166,9 @@ export interface AppSnapshot {
     albumTracks: Track[];
     hasMoreAlbumTracks: boolean;
     stations: RadioStation[];
+    trackSearchInput: string;
     trackQuery: string;
+    searchHistory: string[];
     tracks: Track[];
     hasMoreTracks: boolean;
     hasMoreAlbums: boolean;
@@ -201,12 +202,16 @@ export interface MusicApplication {
   setMenu(open: boolean): void;
   setView(view: View): void;
   returnToPlayer(): void;
+  goBack(backgroundOnHome?: boolean): boolean;
   toggleMobileHome(): void;
   showSearch(): void;
   search(query: string): Promise<void>;
   cancelSearch(): void;
   searchTracks(query: string): Promise<void>;
+  setTrackSearchInput(query: string): void;
   cancelTrackSearch(): void;
+  removeSearchHistory(query: string): void;
+  clearSearchHistory(): void;
   loadMoreTracks(): Promise<void>;
   loadFollowerCount(id: string): Promise<void>;
   showArtistAlbums(artist: Artist): Promise<void>;
@@ -226,10 +231,12 @@ export interface MusicApplication {
   pause(): void;
   seek(seconds: number): void;
   advance(direction: "next" | "previous", automatic?: boolean): Promise<void>;
+  skipTrack(direction: "next" | "previous"): Promise<void>;
   cycleOrder(): void;
   toggleLike(): Promise<void>;
   openQueue(): void;
   closeQueue(): void;
+  playQueueHistory(index: number, trackIndex?: number): Promise<void>;
   selectTrack(index: number): Promise<void>;
   insertTrackNext(track: Track, options?: { autoplay?: boolean }): Promise<void>;
   removeTrack(index: number): void;

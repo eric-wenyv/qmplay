@@ -137,9 +137,9 @@ export class PlayerSession {
     this.elapsed = 0;
   }
 
-  previous() {
+  previous({ restartCurrent = true } = {}) {
     if (!this.current) return;
-    if (this.elapsed > 3) {
+    if (restartCurrent && this.elapsed > 3) {
       this.elapsed = 0;
       return;
     }
