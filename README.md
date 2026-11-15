@@ -17,10 +17,3 @@ pnpm install --frozen-lockfile
 pnpm build
 pnpm start
 ```
-
-## 运行截图
-
-<p>
-  <img src="./assets/screenshot.png" alt="运行截图" height="280" />
-  <img src="./assets/screenshot-android.jpg" alt="手机端运行截图" height="280" />
-</p>
